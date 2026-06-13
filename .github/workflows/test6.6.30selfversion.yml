@@ -31,7 +31,7 @@ on:
         description: '自定义构建时间(输入F使用UTC时间，-1关闭，留空则使用默认)'
         required: false
         type: string
-        default: ''
+        default: 'Tue Dec 17 23:36:46 UTC 2024'
       version_tag:
         description: '自定义版本标识(留空则使用默认)'
         required: false
