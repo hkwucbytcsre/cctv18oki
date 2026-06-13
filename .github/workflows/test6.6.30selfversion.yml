@@ -22,21 +22,6 @@ on:
           - 'ksunext'
           - 'ksu'
           - 'none'
-      sublevel:
-        description: '自定义内核等级欺骗(SUBLEVEL)，留空则不修改'
-        required: false
-        type: string
-        default: ''
-      build_time:
-        description: '自定义构建时间(输入F使用UTC时间，-1关闭，留空则使用默认)'
-        required: false
-        type: string
-        default: 'Tue Dec 17 23:36:46 UTC 2024'
-      version_tag:
-        description: '自定义版本标识(留空则使用默认)'
-        required: false
-        type: string
-        default: 'cctv18'
       susfs_enable:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
         required: true
@@ -268,11 +253,7 @@ jobs:
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" || ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             echo "正在配置ReSukiSU（由于SukiSU长期未维护无法正常编译，且ReSukiSU兼容sukisu管理器，故SukiSU源码仓库已重定向为resukisu）..."
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
-            VERSION_TAG="${{ github.event.inputs.version_tag }}"
-              if [[ -z "$VERSION_TAG" ]]; then
-                VERSION_TAG="cctv18"
-              fi
-            echo "CONFIG_KSU_FULL_NAME_FORMAT=\"%TAG_NAME%-%COMMIT_SHA%@${VERSION_TAG}\"" >> ./common/arch/arm64/configs/gki_defconfig
+            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18-miyako"' >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
             # 生成自定义版本号（基于提交计数）, 失败时使用 114514
             KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
@@ -570,48 +551,6 @@ jobs:
           fi
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-
-      - name: 自定义构建时间
-        if: inputs.build_time != '-1'
-        run: |
-          cd kernel_workspace/common
-          INPUT_TIME="${{ github.event.inputs.build_time }}"
-          if [[ "$INPUT_TIME" == "F" ]]; then
-            DATESTR="$(TZ='UTC' date +'%a %b %d %T %Z %Y')"
-            echo "使用 UTC 时间: $DATESTR"
-          elif [[ -n "$INPUT_TIME" ]]; then
-            DATESTR="$INPUT_TIME"
-            echo "使用自定义时间: $DATESTR"
-          else
-            # 留空则保持原样，不做任何修改
-            echo "build_time 留空，跳过时间修改"
-            exit 0
-          fi
-          echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> $GITHUB_ENV
-          echo "KBUILD_BUILD_VERSION=1" >> $GITHUB_ENV
-          # 修改 mkcompile_h 确保生效（某些内核可能不读取环境变量，直接修改脚本更可靠）
-          for f in ./scripts/mkcompile_h; do
-            if [ -f "$f" ]; then
-              echo "Patching $f with BUILD_TIME=$DATESTR"
-              if grep -q 'UTS_VERSION=' "$f"; then
-                perl -pi -e "s{UTS_VERSION=\"\\\$\\(.*?\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
-              else
-                perl -0777 -pi -e "s{cat <<EOF}{cat <<EOF\n#undef UTS_VERSION\n#define UTS_VERSION \"#1 SMP PREEMPT $DATESTR\" } unless /UTS_VERSION/" "$f"
-              fi
-            fi
-          done
-
-      - name: 自定义内核等级欺骗(SUBLEVEL)
-        if: inputs.sublevel != ''
-        run: |
-          cd kernel_workspace/common
-          ORIG_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' Makefile)
-          echo "原始内核版本: $ORIG_VERSION"
-          echo "修改 SUBLEVEL 为 ${{ github.event.inputs.sublevel }}"
-          sed -i "s/^\(SUBLEVEL[[:space:]]*=[[:space:]]*\).*/\1${{ github.event.inputs.sublevel }}/" Makefile
-          NEW_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' Makefile)
-          echo "新的内核版本: $NEW_VERSION"
-          echo "SUBLEVEL_MODIFIED=true" >> $GITHUB_ENV
            
       - name: 构建内核
         run: |
