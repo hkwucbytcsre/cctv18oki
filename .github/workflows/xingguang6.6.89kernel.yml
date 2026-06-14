@@ -134,7 +134,7 @@ jobs:
           sudo apt purge man-db &&
           sudo rm -rf /var/lib/man-db/auto-update &&
           sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev &
+          sudo apt-get install -y --no-install-recommends binutils python3 python-is-python3 libssl-dev libelf-dev jq bc patch &
           
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/ccache-x86-64 -O ccache &&
           sudo cp -f ./ccache /usr/bin/ccache &&
@@ -496,97 +496,53 @@ jobs:
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      # ==================== 新增：集成 ABK FIDO Key Module ====================
-      - name: 集成 ABK FIDO Key Module
+      # ==================== 修正：集成 ABK FIDO Key Module（使用官方 setup.sh） ====================
+      - name: 集成 ABK FIDO Key Module (使用官方 setup.sh)
         run: |
           cd kernel_workspace
           echo "克隆 ABK FIDO Key Module 仓库..."
-          git clone --depth=1 https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git abk_fido_key_module
+          git clone --depth=1 https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git
+          cd ABK_FIDO_KEY_MODULE
           
-          echo "执行 after_patch 阶段：复制内核驱动文件并修补 configfs.c..."
-          cp -r abk_fido_key_module/files/drivers/abk_fido_key common/drivers/
-          cp abk_fido_key_module/files/include/linux/abk_fido_key.h common/include/linux/
+          export KERNEL_ROOT="$(pwd)/../common"
+          export DEFCONFIG="arch/arm64/configs/gki_defconfig"
           
-          # 将模块添加到内核驱动框架
-          if ! grep -q "source \"drivers/abk_fido_key/Kconfig\"" common/drivers/Kconfig; then
-            echo 'source "drivers/abk_fido_key/Kconfig"' >> common/drivers/Kconfig
-          fi
-          if ! grep -q "abk_fido_key/" common/drivers/Makefile; then
-            echo 'obj-$(CONFIG_ABK_FIDO_KEY) += abk_fido_key/' >> common/drivers/Makefile
-          fi
+          export CUSTOM_EXTERNAL_MODULE_STAGE="after_patch"
+          echo "执行 after_patch 阶段..."
+          bash setup.sh
           
-          # 运行 configfs 补丁脚本（需要 python3）
-          cd abk_fido_key_module
-          python3 scripts/patch_configfs_for_abk_fido.py --kernel-root ../common || true
+          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
+          echo "执行 before_build 阶段..."
+          bash setup.sh
+          
           cd ..
-          
-          echo "执行 before_build 阶段：启用 ABK FIDO Key 内核配置..."
-          cat >> common/arch/arm64/configs/gki_defconfig << EOF
-          CONFIG_ABK_FIDO_KEY=y
-          CONFIG_ABK_FIDO_KEY_CTAP2=y
-          CONFIG_ABK_FIDO_KEY_GADGET_AUTO_ATTACH=y
-          CONFIG_ABK_FIDO_KEY_PERSIST_METADATA=y
-          CONFIG_ABK_FIDO_KEY_PERSIST_ADB_DATA=y
-          EOF
-          
           echo "ABK FIDO Key Module 集成完成。"
       # =======================================================================
 
-      # ==================== 新增：集成 ABK Control Module ====================
-      - name: 集成 ABK Control Module
+      # ==================== ABK Control Module 集成（使用官方 setup.sh） ====================
+      - name: 集成 ABK Control Module (使用官方 setup.sh)
         run: |
           cd kernel_workspace
           echo "克隆 ABK Control Module 仓库..."
-          git clone --depth=1 https://github.com/xingguangcuican6666/ABK_control_module.git abk_control_module
+          git clone --depth=1 https://github.com/xingguangcuican6666/ABK_control_module.git
+          cd ABK_control_module
           
-          echo "执行 after_patch 阶段：复制内核源文件..."
-          # 模块仓库通常包含 kernel/ 目录，其中为 drivers/ 和 include/ 等
-          if [ -d "abk_control_module/kernel" ]; then
-            cp -r abk_control_module/kernel/* common/
-          else
-            # 若直接放在根目录，则分别复制必要目录
-            cp -r abk_control_module/drivers common/ 2>/dev/null || true
-            cp -r abk_control_module/include common/ 2>/dev/null || true
-          fi
+          export KERNEL_ROOT="$(pwd)/../common"
+          export DEFCONFIG="arch/arm64/configs/gki_defconfig"
+          export ABK_MANAGER_PACKAGE="com.abk.kernel"
+          export ABK_MANAGER_CERT_SIZE="1407"
+          export ABK_MANAGER_CERT_SHA256="34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16"
           
-          # 确保 Kconfig 和 Makefile 钩子存在
-          if [ -f "common/drivers/abk_control/Kconfig" ] && ! grep -q "source \"drivers/abk_control/Kconfig\"" common/drivers/Kconfig; then
-            echo 'source "drivers/abk_control/Kconfig"' >> common/drivers/Kconfig
-          fi
-          if [ -f "common/drivers/abk_control/Makefile" ] && ! grep -q "abk_control/" common/drivers/Makefile; then
-            echo 'obj-$(CONFIG_ABK_CONTROL) += abk_control/' >> common/drivers/Makefile
-          fi
+          export CUSTOM_EXTERNAL_MODULE_STAGE="after_patch"
+          echo "执行 after_patch 阶段..."
+          bash setup.sh
           
-          echo "修补 KernelSU 管理器识别（提升证书读取限制并允许 ABK 应用作为管理器）..."
-          # 如果模块提供了补丁脚本，优先运行
-          if [ -f "abk_control_module/scripts/patch_kernelsu_for_abk.sh" ]; then
-            bash abk_control_module/scripts/patch_kernelsu_for_abk.sh --kernel-root common \
-              --manager-package "${ABK_MANAGER_PACKAGE:-com.abk.kernel}" \
-              --cert-size "${ABK_MANAGER_CERT_SIZE:-1407}" \
-              --cert-sha256 "${ABK_MANAGER_CERT_SHA256:-34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16}" || true
-          else
-            # 手动修补常见位置（KernelSU、ReSukiSU、KernelSU-Next）
-            for ksu_dir in common/drivers/kernelsu common/KernelSU common/KernelSU-Next; do
-              if [ -d "$ksu_dir" ]; then
-                find "$ksu_dir" -name "*.c" -exec sed -i 's/1024/2048/g' {} \;
-              fi
-            done
-          fi
+          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
+          echo "执行 before_build 阶段..."
+          bash setup.sh
           
-          echo "执行 before_build 阶段：生成元数据并启用内核配置..."
-          # 若模块提供了元数据生成脚本，运行之
-          if [ -f "abk_control_module/scripts/generate_metadata.sh" ]; then
-            bash abk_control_module/scripts/generate_metadata.sh --kernel-root common --output common/include/generated/abk_metadata.h
-          fi
-          
-          # 启用内核配置
-          echo "CONFIG_ABK_CONTROL=y" >> common/arch/arm64/configs/gki_defconfig
-          
+          cd ..
           echo "ABK Control Module 集成完成。"
-        env:
-          ABK_MANAGER_PACKAGE: "com.abk.kernel"
-          ABK_MANAGER_CERT_SIZE: "1407"
-          ABK_MANAGER_CERT_SHA256: "34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16"
       # =======================================================================
 
       - name: 添加制作名称
