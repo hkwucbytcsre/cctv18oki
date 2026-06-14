@@ -629,8 +629,10 @@ jobs:
       - name: 应用 Xingguang-DDK LSM（实验性）
         if: inputs.abk_ddk_enable
         run: |
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/main/ddk.tar.gz -O ddk.tar.gz
+          tar -xzf ddk.tar.gz
+          cd ddk
           export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
-          cd $GITHUB_WORKSPACE/ddk
           sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' setup.sh
           bash setup.sh
           cd $GKI_ROOT
