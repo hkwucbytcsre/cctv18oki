@@ -496,55 +496,32 @@ jobs:
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      # ==================== 修正：集成 ABK FIDO Key Module（使用官方 setup.sh） ====================
-      - name: 集成 ABK FIDO Key Module (使用官方 setup.sh)
+      # ==================== 阶段1: ABK 模块 after_patch ====================
+      - name: ABK FIDO Key Module - after_patch
         run: |
           cd kernel_workspace
-          echo "克隆 ABK FIDO Key Module 仓库..."
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git
           cd ABK_FIDO_KEY_MODULE
-          
-          export KERNEL_ROOT="$(pwd)/../common"
-          export DEFCONFIG="arch/arm64/configs/gki_defconfig"
-          
+          export KERNEL_ROOT="$(pwd)/.."
+          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
           export CUSTOM_EXTERNAL_MODULE_STAGE="after_patch"
-          echo "执行 after_patch 阶段..."
           bash setup.sh
-          
-          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
-          echo "执行 before_build 阶段..."
-          bash setup.sh
-          
           cd ..
-          echo "ABK FIDO Key Module 集成完成。"
-      # =======================================================================
+          echo "ABK FIDO Key Module after_patch 完成。"
 
-      # ==================== ABK Control Module 集成（使用官方 setup.sh） ====================
-      - name: 集成 ABK Control Module (使用官方 setup.sh)
+      - name: ABK Control Module - after_patch
         run: |
           cd kernel_workspace
-          echo "克隆 ABK Control Module 仓库..."
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_control_module.git
           cd ABK_control_module
-          
-          export KERNEL_ROOT="$(pwd)/../common"
-          export DEFCONFIG="arch/arm64/configs/gki_defconfig"
-          export ABK_MANAGER_PACKAGE="com.abk.kernel"
-          export ABK_MANAGER_CERT_SIZE="1407"
-          export ABK_MANAGER_CERT_SHA256="34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16"
-          
+          export KERNEL_ROOT="$(pwd)/.."
+          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
           export CUSTOM_EXTERNAL_MODULE_STAGE="after_patch"
-          echo "执行 after_patch 阶段..."
           bash setup.sh
-          
-          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
-          echo "执行 before_build 阶段..."
-          bash setup.sh
-          
           cd ..
-          echo "ABK Control Module 集成完成。"
-      # =======================================================================
+          echo "ABK Control Module after_patch 完成。"
 
+      # ==================== 内核名称和构建时间设置 ====================
       - name: 添加制作名称
         run: |
           cd kernel_workspace
@@ -604,6 +581,31 @@ jobs:
           echo "新的内核版本: $NEW_VERSION"
           echo "SUBLEVEL_MODIFIED=true" >> $GITHUB_ENV
 
+      # ==================== 阶段2: ABK 模块 before_build ====================
+      - name: ABK FIDO Key Module - before_build
+        run: |
+          cd kernel_workspace/ABK_FIDO_KEY_MODULE
+          export KERNEL_ROOT="$(pwd)/.."
+          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
+          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
+          bash setup.sh
+          cd ..
+          echo "ABK FIDO Key Module before_build 完成。"
+
+      - name: ABK Control Module - before_build
+        run: |
+          cd kernel_workspace/ABK_control_module
+          export KERNEL_ROOT="$(pwd)/.."
+          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
+          export ABK_MANAGER_PACKAGE="com.abk.kernel"
+          export ABK_MANAGER_CERT_SIZE="1407"
+          export ABK_MANAGER_CERT_SHA256="34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16"
+          export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
+          bash setup.sh
+          cd ..
+          echo "ABK Control Module before_build 完成。"
+
+      # ==================== 构建内核 ====================
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
