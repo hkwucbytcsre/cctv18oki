@@ -629,12 +629,11 @@ jobs:
       - name: 应用 Xingguang-DDK LSM（实验性）
         if: inputs.abk_ddk_enable
         run: |
-          cd kernel_workspace
-          cp -r $GITHUB_WORKSPACE/ddk .
-          cd ddk
+          export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
+          cd $GITHUB_WORKSPACE/ddk
+          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' setup.sh
           bash setup.sh
-          cd ..
-          rm -rf ddk
+          cd $GKI_ROOT
           echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
           echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
           
