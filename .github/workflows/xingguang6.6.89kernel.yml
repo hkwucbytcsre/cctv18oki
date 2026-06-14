@@ -621,13 +621,14 @@ jobs:
           cd ..
           echo "ABK Control Module before_build 完成。"
           
-      - name: 再次去除 -dirty 标记
+      - name: 去除 -dirty 标记
         run: |
-          cd kernel_workspace
-          for f in common/scripts/setlocalversion; do
-            sed -i 's/ -dirty//g' "$f"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
-          done
+          cd kernel_workspace/common
+          cp scripts/setlocalversion scripts/setlocalversion.bak
+          sed -i 's/if git diff-index/if false ; then #/' scripts/setlocalversion
+          sed -i 's/printf "%s-dirty"/printf "%s"/' scripts/setlocalversion
+          sed -i 's/echo "${res}-dirty"/echo "${res}"/' scripts/setlocalversion
+          
       # ==================== 构建内核 ====================
       - name: 构建内核
         run: |
