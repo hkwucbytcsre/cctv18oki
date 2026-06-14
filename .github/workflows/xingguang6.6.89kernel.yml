@@ -508,7 +508,7 @@ jobs:
 
       # ==================== 阶段1: ABK 模块 after_patch ====================
       - name: ABK FIDO Key Module - after_patch
-        if: inputs.abk_fido_enable == 'true'
+        if: inputs.abk_fido_enable
         run: |
           cd kernel_workspace
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git
@@ -521,7 +521,7 @@ jobs:
           echo "ABK FIDO Key Module after_patch 完成。"
 
       - name: ABK Control Module - after_patch
-        if: inputs.abk_control_enable == 'true'
+        if: inputs.abk_control_enable
         run: |
           cd kernel_workspace
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_control_module.git
@@ -595,7 +595,7 @@ jobs:
 
       # ==================== 阶段2: ABK 模块 before_build（修正：使用绝对路径 DEFCONFIG） ====================
       - name: ABK FIDO Key Module - before_build
-        if: inputs.abk_fido_enable == 'true'
+        if: inputs.abk_fido_enable
         run: |
           cd kernel_workspace/ABK_FIDO_KEY_MODULE
           ABS_KERNEL_ROOT="$(realpath ..)"
@@ -607,7 +607,7 @@ jobs:
           echo "ABK FIDO Key Module before_build 完成。"
 
       - name: ABK Control Module - before_build
-        if: inputs.abk_control_enable == 'true'
+        if: inputs.abk_control_enable
         run: |
           cd kernel_workspace/ABK_control_module
           ABS_KERNEL_ROOT="$(realpath ..)"
@@ -620,7 +620,14 @@ jobs:
           bash setup.sh
           cd ..
           echo "ABK Control Module before_build 完成。"
-
+          
+      - name: 再次去除 -dirty 标记
+        run: |
+          cd kernel_workspace
+          for f in common/scripts/setlocalversion; do
+            sed -i 's/ -dirty//g' "$f"
+            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
+          done
       # ==================== 构建内核 ====================
       - name: 构建内核
         run: |
