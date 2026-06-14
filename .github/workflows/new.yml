@@ -287,7 +287,7 @@ jobs:
             if [[ -z "$VERSION_TAG" ]]; then
               VERSION_TAG="cctv18"
             fi
-            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@'"${VERSION_TAG}"'"' >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_FULL_NAME_FORMAT=\"%TAG_NAME%-%COMMIT_SHA%@${VERSION_TAG}\"" >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
             KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
@@ -527,7 +527,7 @@ jobs:
             # 从 Makefile 提取内核主版本号
             KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
             if [ "$KERNEL_MAJOR" -lt 6 ]; then
-              PATCH_URL="https://github.com/Numbersf/Action-Build/blob/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch
+              PATCH_URL="https://github.com/Numbersf/Action-Build/blob/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
             else
               PATCH_URL="https://github.com/Numbersf/Action-Build/blob/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
             fi
