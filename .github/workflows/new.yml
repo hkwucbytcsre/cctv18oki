@@ -518,9 +518,9 @@ jobs:
           curl -sSL https://raw.githubusercontent.com/vc-teahouse/Baseband-guard/main/setup.sh | bash
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-       - name: Apply UNICODE_BYPASS
-          if: inputs.UNICODE_BYPASS == 'true'
-          run: |
+      - name: Apply UNICODE_BYPASS
+        if: inputs.UNICODE_BYPASS == 'true'
+        run: |
             cd kernel_workspace/common
             # 从 Makefile 提取内核主版本号
             KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
