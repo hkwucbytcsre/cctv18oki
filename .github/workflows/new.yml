@@ -110,7 +110,7 @@ on:
         required: true
         type: boolean
         default: 'true'
-      UNICODE_BYPASS:
+      unicodepass:
         type: boolean
         description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
         required: true
@@ -521,7 +521,7 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       - name: Apply UNICODE_BYPASS
-        if: inputs.UNICODE_BYPASS == 'true'
+        if: unicodepass
         run: |
             cd kernel_workspace/common
             # 从 Makefile 提取内核主版本号
