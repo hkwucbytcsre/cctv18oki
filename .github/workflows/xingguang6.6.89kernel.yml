@@ -630,35 +630,12 @@ jobs:
         if: inputs.abk_ddk_enable
         run: |
           cd kernel_workspace
-
-          # 临时将 common 初始化为 git 仓库（供 git apply 使用）
-          cd common
-          if [ ! -d .git ]; then
-            git init
-            git add .
-            git commit -m "temp for xingguang-ddk patch"
-          fi
-          cd ..
-
-          # 克隆 ABK 仓库并提取 ddk 目录到根目录
-          git clone --depth=1 https://github.com/xingguangcuican6666/ABK.git abk_ddk_temp
-          cp -r abk_ddk_temp/ddk/* .
-          rm -rf abk_ddk_temp
-
-          # 此时当前目录（kernel_workspace）下有 setup.sh、xingguang-ddk/、patches/
-          # 运行 setup.sh（它会自动使用正确的 GKI_ROOT）
+          cp -r $GITHUB_WORKSPACE/ddk .
+          cd ddk
           bash setup.sh
-
-          # 移除临时 git 仓库
-          rm -rf common/.git
-
-          # 手动启用内核配置
+          cd ..
+          rm -rf ddk
           echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
-
-          # 清理复制过来的文件（可选，保留也无影响）
-          rm -f setup.sh
-          rm -rf xingguang-ddk patches
-
           echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
           
       - name: 去除 -dirty 标记
