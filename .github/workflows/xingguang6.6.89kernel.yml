@@ -581,12 +581,13 @@ jobs:
           echo "新的内核版本: $NEW_VERSION"
           echo "SUBLEVEL_MODIFIED=true" >> $GITHUB_ENV
 
-      # ==================== 阶段2: ABK 模块 before_build ====================
+      # ==================== 阶段2: ABK 模块 before_build（修正：使用绝对路径 DEFCONFIG） ====================
       - name: ABK FIDO Key Module - before_build
         run: |
           cd kernel_workspace/ABK_FIDO_KEY_MODULE
-          export KERNEL_ROOT="$(pwd)/.."
-          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
+          ABS_KERNEL_ROOT="$(realpath ..)"
+          export KERNEL_ROOT="$ABS_KERNEL_ROOT"
+          export DEFCONFIG="$ABS_KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
           export CUSTOM_EXTERNAL_MODULE_STAGE="before_build"
           bash setup.sh
           cd ..
@@ -595,8 +596,9 @@ jobs:
       - name: ABK Control Module - before_build
         run: |
           cd kernel_workspace/ABK_control_module
-          export KERNEL_ROOT="$(pwd)/.."
-          export DEFCONFIG="common/arch/arm64/configs/gki_defconfig"
+          ABS_KERNEL_ROOT="$(realpath ..)"
+          export KERNEL_ROOT="$ABS_KERNEL_ROOT"
+          export DEFCONFIG="$ABS_KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
           export ABK_MANAGER_PACKAGE="com.abk.kernel"
           export ABK_MANAGER_CERT_SIZE="1407"
           export ABK_MANAGER_CERT_SHA256="34e5e843952277759603cd0f949770b24c868530d80d7baeff08776a7e132b16"
