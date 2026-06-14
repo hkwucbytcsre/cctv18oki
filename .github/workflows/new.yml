@@ -527,9 +527,9 @@ jobs:
             # 从 Makefile 提取内核主版本号
             KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
             if [ "$KERNEL_MAJOR" -lt 6 ]; then
-              PATCH_URL="https://github.com/Numbersf/Action-Build/blob/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
             else
-              PATCH_URL="https://github.com/Numbersf/Action-Build/blob/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
             fi
             echo "下载补丁: $PATCH_URL"
             wget -O unicode_bypass.patch "$PATCH_URL"
