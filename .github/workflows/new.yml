@@ -280,8 +280,7 @@ jobs:
             echo "正在配置ReSukiSU..."
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
             cd ./KernelSU
-            sed -i 's/--dirty=-dirty/--dirty=/' kernel/Makefile
-            # sed -i 's/git describe --always --dirty=-dirty/git describe --always/' kernel/Makefile
+            sed -i 's/^COMMIT_SHA :=.*/COMMIT_SHA := $(shell git rev-parse --short HEAD)/' kernel/Makefile
             cd ..
             VERSION_TAG="${{ github.event.inputs.version_tag }}"
             if [[ -z "$VERSION_TAG" ]]; then
