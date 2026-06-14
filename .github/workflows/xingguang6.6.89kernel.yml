@@ -47,6 +47,16 @@ on:
         required: true
         type: boolean
         default: 'false'
+      abk_fido_enable:
+        description: '是否集成 ABK FIDO Key Module (USB FIDO2 安全密钥)'
+        required: true
+        type: boolean
+        default: 'false'
+      abk_control_enable:
+        description: '是否集成 ABK Control Module (内核控制框架)'
+        required: true
+        type: boolean
+        default: 'false'
       lz4_enable:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁'
         required: true
@@ -498,6 +508,7 @@ jobs:
 
       # ==================== 阶段1: ABK 模块 after_patch ====================
       - name: ABK FIDO Key Module - after_patch
+        if: inputs.abk_fido_enable == 'true'
         run: |
           cd kernel_workspace
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git
@@ -510,6 +521,7 @@ jobs:
           echo "ABK FIDO Key Module after_patch 完成。"
 
       - name: ABK Control Module - after_patch
+        if: inputs.abk_control_enable == 'true'
         run: |
           cd kernel_workspace
           git clone --depth=1 https://github.com/xingguangcuican6666/ABK_control_module.git
@@ -583,6 +595,7 @@ jobs:
 
       # ==================== 阶段2: ABK 模块 before_build（修正：使用绝对路径 DEFCONFIG） ====================
       - name: ABK FIDO Key Module - before_build
+        if: inputs.abk_fido_enable == 'true'
         run: |
           cd kernel_workspace/ABK_FIDO_KEY_MODULE
           ABS_KERNEL_ROOT="$(realpath ..)"
@@ -594,6 +607,7 @@ jobs:
           echo "ABK FIDO Key Module before_build 完成。"
 
       - name: ABK Control Module - before_build
+        if: inputs.abk_control_enable == 'true'
         run: |
           cd kernel_workspace/ABK_control_module
           ABS_KERNEL_ROOT="$(realpath ..)"
