@@ -31,7 +31,7 @@ function_has_call() {
 	file="$1"
 	signature="$2"
 	marker="$3"
-	awk -v signature="$signature" -v marker="$marker" '
+	awk -v signature="$signature" -v marker="$markder" '
 		$0 ~ "^[[:space:]]*" signature "\\(" { in_func=1 }
 		in_func && index($0, marker) { found=1; exit }
 		in_func && /^}/ { exit }
@@ -616,6 +616,7 @@ PY
 
 echo "[+] Setting up Xingguang DDK LSM"
 
+# 应用补丁 - 使用 patch 命令替代 git apply
 if [ -d "$PATCH_DIR" ]; then
 	echo "[+] Applying Xingguang DDK patch stack"
 	for patch in "$PATCH_DIR"/*.patch; do
@@ -625,11 +626,18 @@ if [ -d "$PATCH_DIR" ]; then
 		case "$patch_name" in
 			*.optional.patch) optional=true ;;
 		esac
-		if git -C "$COMMON_ROOT" apply --check "$patch" >/dev/null 2>&1; then
-			git -C "$COMMON_ROOT" apply "$patch"
-			echo " - applied $patch_name"
-		elif git -C "$COMMON_ROOT" apply --reverse --check "$patch" >/dev/null 2>&1; then
+
+		# 尝试使用 patch 命令应用补丁
+		# 先测试是否已经应用（反向应用检查）
+		if patch -p1 -d "$COMMON_ROOT" --dry-run -R < "$patch" >/dev/null 2>&1; then
 			echo " - already applied $patch_name"
+			continue
+		fi
+
+		# 尝试直接应用
+		if patch -p1 -d "$COMMON_ROOT" --dry-run < "$patch" >/dev/null 2>&1; then
+			patch -p1 -d "$COMMON_ROOT" < "$patch"
+			echo " - applied $patch_name"
 		elif [ "$patch_name" = "0010-vfs-write-callsite.patch" ] && apply_ddk_0010_compat; then
 			echo " - applied $patch_name (compat)"
 		elif [ "$patch_name" = "0030-block-ioctl-erase-callsite.patch" ] && apply_ddk_0030_compat; then
@@ -640,7 +648,6 @@ if [ -d "$PATCH_DIR" ]; then
 			echo " - skipped optional $patch_name"
 		else
 			echo "[ERROR] failed to apply DDK patch: $patch"
-			git -C "$COMMON_ROOT" apply --check "$patch"
 			exit 1
 		fi
 	done
