@@ -803,24 +803,19 @@ jobs:
           
           SCRIPT="./common/scripts/setlocalversion"
           if [[ -f "$SCRIPT" ]]; then
-            # 1. 屏蔽 scm_version 函数中所有产生输出的命令（printf/echo）
-            sed -i '/^scm_version()/,/^}/ {
-                s/printf/:\ printf/g;
-                s/echo\([^"]*\)/:\ echo\1/g;
-                s/printf/:\ printf/g;
-            }' "$SCRIPT"
+            # 备份原脚本（可选，调试用）
+            # cp "$SCRIPT" "$SCRIPT.bak"
             
-            # 2. 将最后一行（最终输出行）替换为固定后缀
-            # 匹配以 echo "${KERNELVERSION} 开头的行，替换为固定后缀
-            sed -i "\$s|^echo.*|echo \"-${FINAL_SUFFIX}\"|" "$SCRIPT"
+            # 将最后一行（echo "${KERNELVERSION}..." 行）替换为两行：
+            # 1. scm_version=""  （清空动态版本）
+            # 2. echo "${KERNELVERSION}-${FINAL_SUFFIX}"
+            sed -i "\$s|^echo.*|scm_version=\"\"\necho \"\${KERNELVERSION}-${FINAL_SUFFIX}\"|" "$SCRIPT"
             
-            # 3. 移除 -dirty 标记（保留原逻辑）
+            # 移除 -dirty 标记（保留原逻辑）
             sed -i 's/ -dirty//g' "$SCRIPT"
             
-            # 4. 可选：注释掉 collect_files 等无关调用（不必须）
-            
             chmod +x "$SCRIPT"
-            echo "✅ setlocalversion 已适配修改"
+            echo "✅ setlocalversion 已安全修改（仅替换最后一行并清空 scm_version）"
           else
             echo "错误：未找到 $SCRIPT"
             exit 1
@@ -837,7 +832,6 @@ jobs:
             echo "警告：未找到 gki_defconfig"
           fi
           
-          # 输出验证信息
           echo "::group::✅ 内核版本后缀修改完成"
           echo "最终后缀: -${FINAL_SUFFIX}"
           echo "完整版本预计为: ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${FINAL_SUFFIX}"
