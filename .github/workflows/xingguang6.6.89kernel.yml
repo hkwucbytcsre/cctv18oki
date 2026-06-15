@@ -110,6 +110,14 @@ on:
         required: true
         type: boolean
         default: 'true'
+      bbg_source:
+        description: '基带保护补丁来源 (cctv18 / vc-teahouse)'
+        required: true
+        type: choice
+        default: 'cctv18'
+        options:
+          - 'cctv18'
+          - 'vc-teahous'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
@@ -540,7 +548,11 @@ jobs:
           cd kernel_workspace
           echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
           cd ./common
-          curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          if [[ "${{ github.event.inputs.bbg_source }}" == "vc-teahouse" ]]; then
+            curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          else
+            curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          fi
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       # ==================== 阶段1: ABK 模块 after_patch ====================
@@ -571,25 +583,6 @@ jobs:
           echo "ABK Control Module after_patch 完成。"
 
       # ==================== 内核名称和构建时间设置 ====================
-      - name: 添加制作名称
-        run: |
-          cd kernel_workspace
-          echo "替换内核版本后缀..."
-          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
-            for f in ./common/scripts/setlocalversion; do
-              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
-            done
-            sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
-          else
-            echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
-            for f in ./common/scripts/setlocalversion; do
-              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
-            done
-            sudo sed -i 's/-4k/-${{ env.KERNEL_NAME }}/g' ./common/arch/arm64/configs/gki_defconfig
-          fi
-          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
-          echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: 自定义构建时间
         if: inputs.build_time != '-1'
@@ -670,7 +663,27 @@ jobs:
           cd $GKI_ROOT
           echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
           echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
-          
+
+      - name: 添加制作名称
+        run: |
+          cd kernel_workspace
+          echo "替换内核版本后缀..."
+          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
+            for f in ./common/scripts/setlocalversion; do
+              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
+            done
+            sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
+          else
+            echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
+            for f in ./common/scripts/setlocalversion; do
+              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
+            done
+            sudo sed -i 's/-4k/-${{ env.KERNEL_NAME }}/g' ./common/arch/arm64/configs/gki_defconfig
+          fi
+          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
+      
       # ==================== 构建内核 ====================
       - name: 构建内核
         run: |
@@ -912,12 +925,15 @@ jobs:
           - LZ4KD支持：${{ github.event.inputs.lz4kd_enable }}
           - 网络功能增强：${{ github.event.inputs.better_net }}
           - BBR/Brutal 等拥塞控制算法支持：${{ github.event.inputs.bbr_enable }}
+          - 基带保护补丁来源：${{ github.event.inputs.bbg_source == 'vc-teahouse' && 'vc-teahouse' || 'cctv18' }}
           - Droidspaces 容器支持：${{ github.event.inputs.droidspaces_enable }}
           - ADIOS IO调度器支持：${{ github.event.inputs.adios_enable }}
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
-          - ABK FIDO Key 模块：已集成（版本 0.2.0）
-          - ABK Control 模块：已集成（版本 0.4.0）
+          - ABK FIDO Key 模块：${{ github.event.inputs.abk_fido_enable && '已开启' || '已关闭' }}
+          - ABK Control 模块：${{ github.event.inputs.abk_control_enable && '已开启' || '已关闭' }}
+          - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable && '已开启' || '已关闭' }}（实验性）
+          - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass && '已开启' || '已关闭' }}
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
           - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)
