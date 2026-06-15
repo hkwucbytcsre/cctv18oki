@@ -115,6 +115,11 @@ on:
         required: true
         type: boolean
         default: 'false'
+      unicode_bypass:
+        type: boolean
+        description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
+        required: true
+        default: 'false'
       ccache_debug:
         description: '是否上传 Ccache调试日志(用于调试, 无需要不必开启)'
         required: true
@@ -274,11 +279,17 @@ jobs:
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" || ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             echo "正在配置ReSukiSU..."
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
+            cd ./KernelSU
+            REAL_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+            REAL_COMMIT=$(git rev-parse --short HEAD)
+            cd ..
             VERSION_TAG="${{ github.event.inputs.version_tag }}"
             if [[ -z "$VERSION_TAG" ]]; then
               VERSION_TAG="cctv18"
             fi
-            echo "CONFIG_KSU_FULL_NAME_FORMAT=\"%TAG_NAME%-%COMMIT_SHA%@${VERSION_TAG}\"" >> ./common/arch/arm64/configs/gki_defconfig
+            # 构造版本字符串"
+            STATIC_VERSION="${REAL_TAG}-${REAL_COMMIT}@${VERSION_TAG}"
+            echo "CONFIG_KSU_FULL_NAME_FORMAT=\"${STATIC_VERSION}\"" >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
             KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
@@ -452,6 +463,27 @@ jobs:
               echo "CONFIG_DEFAULT_TCP_CONG=cubic" >> ./common/arch/arm64/configs/gki_defconfig
             fi
           fi
+
+      - name: Apply UNICODE_BYPASS
+        if: inputs.unicode_bypass
+        run: |
+            cd kernel_workspace/common
+            # 从 Makefile 提取内核主版本号
+            KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
+            if [ "$KERNEL_MAJOR" -lt 6 ]; then
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
+            else
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
+            fi
+            echo "下载补丁: $PATCH_URL"
+            wget -O unicode_bypass.patch "$PATCH_URL"
+            patch -p1 --forward < unicode_bypass.patch || true
+            # 检查是否有拒绝文件（补丁失败）
+            if find . -name "*.rej" -print -quit | grep -q .; then
+              echo "::warning::Unicode 绕过补丁部分失败，请检查 .rej 文件"
+            else
+              echo "Unicode 绕过补丁应用成功"
+            fi
 
       - name: 启用 Droidspaces 容器支持
         run: |
@@ -638,14 +670,6 @@ jobs:
           cd $GKI_ROOT
           echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
           echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
-          
-      - name: 去除 -dirty 标记
-        run: |
-          cd kernel_workspace/common
-          cp scripts/setlocalversion scripts/setlocalversion.bak
-          sed -i 's/if git diff-index/if false ; then #/' scripts/setlocalversion
-          sed -i 's/printf "%s-dirty"/printf "%s"/' scripts/setlocalversion
-          sed -i 's/echo "${res}-dirty"/echo "${res}"/' scripts/setlocalversion
           
       # ==================== 构建内核 ====================
       - name: 构建内核
