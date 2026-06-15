@@ -782,6 +782,12 @@ jobs:
             "${{ github.workspace }}/kernel_workspace" \
             "${{ github.workspace }}/kernel_workspace/common/arch/arm64/configs/gki_defconfig"
 
+      - name: 查看原始 setlocalversion 内容
+        run: |
+                echo "::group::原始 setlocalversion 内容"
+                cat kernel_workspace/common/scripts/setlocalversion
+                echo "::endgroup::"
+
       - name: 添加制作名称
         run: |
                 cd kernel_workspace
