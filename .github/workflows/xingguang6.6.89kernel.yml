@@ -785,6 +785,8 @@ jobs:
       - name: 添加制作名称
         run: |
           cd kernel_workspace
+          # 删除 .git 目录，防止动态版本号生成
+          rm -rf ./common/.git
           echo "替换内核版本后缀..."
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
             echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
