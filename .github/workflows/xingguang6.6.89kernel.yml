@@ -122,7 +122,7 @@ on:
         description: 'ABK外部模块（格式：url;stage，多个用|分隔，支持#branch）'
         required: false
         type: string
-        default: ''
+        default: 'https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git;after_patch|https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git;before_build|https://github.com/xingguangcuican6666/ABK_control_module.git;after_patch|https://github.com/xingguangcuican6666/ABK_control_module.git;before_build'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
@@ -1062,11 +1062,11 @@ jobs:
           - ADIOS IO调度器支持：${{ github.event.inputs.adios_enable }}
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
-          - ABK FIDO Key 模块：${{ github.event.inputs.abk_fido_enable && '已开启' || '已关闭' }}
-          - ABK Control 模块：${{ github.event.inputs.abk_control_enable && '已开启' || '已关闭' }}
-          - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable && '已开启' || '已关闭' }}（实验性）
-          - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass && '已开启' || '已关闭' }}
-          - ABK 外部模块：${{ github.event.inputs.abk_modules != '' && github.event.inputs.abk_modules || '无' }}
+          - ABK FIDO Key 模块：${{ github.event.inputs.abk_fido_enable }}
+          - ABK Control 模块：${{ github.event.inputs.abk_control_enable }}
+          - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable }}（实验性）
+          - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass }}
+          - ABK 外部模块：${{ github.event.inputs.abk_modules }}
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
           - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)
