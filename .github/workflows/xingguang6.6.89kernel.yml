@@ -683,7 +683,7 @@ jobs:
           export KERNEL_SUFFIX="${{ github.event.inputs.kernel_suffix }}"
           export BUILD_TIME="${{ github.event.inputs.build_time }}"
           run_abk_modules "after_patch" "${{ github.event.inputs.abk_modules }}" \
-            "${{ github.workspace }}/kernel_workspace/common" \
+            "${{ github.workspace }}/kernel_workspace" \
             "${{ github.workspace }}/kernel_workspace/common/arch/arm64/configs/gki_defconfig"
 
       # ==================== 内核名称和构建时间设置 ====================
@@ -779,7 +779,7 @@ jobs:
           export KERNEL_SUFFIX="${{ github.event.inputs.kernel_suffix }}"
           export BUILD_TIME="${{ github.event.inputs.build_time }}"
           run_abk_modules "before_build" "${{ github.event.inputs.abk_modules }}" \
-            "${{ github.workspace }}/kernel_workspace/common" \
+            "${{ github.workspace }}/kernel_workspace" \
             "${{ github.workspace }}/kernel_workspace/common/arch/arm64/configs/gki_defconfig"
 
       - name: 添加制作名称
