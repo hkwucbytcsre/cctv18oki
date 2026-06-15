@@ -1052,6 +1052,7 @@ jobs:
           - ABK Control 模块：${{ github.event.inputs.abk_control_enable && '已开启' || '已关闭' }}
           - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable && '已开启' || '已关闭' }}（实验性）
           - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass && '已开启' || '已关闭' }}
+          - ABK 外部模块：${{ github.event.inputs.abk_modules != '' && github.event.inputs.abk_modules || '无' }}
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
           - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)
