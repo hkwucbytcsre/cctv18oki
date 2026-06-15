@@ -790,23 +790,58 @@ jobs:
 
       - name: 添加制作名称
         run: |
-                cd kernel_workspace
-                echo "替换内核版本后缀..."
-                if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-                  echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
-                  for f in ./common/scripts/setlocalversion; do
-                    sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
-                  done
-                  sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
-                else
-                  echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
-                  for f in ./common/scripts/setlocalversion; do
-                    sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
-                  done
-                  sudo sed -i 's/-4k/-${{ env.KERNEL_NAME }}/g' ./common/arch/arm64/configs/gki_defconfig
-                fi
-                sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
-                echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
+          cd kernel_workspace
+          
+          # 确定最终后缀
+          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            FINAL_SUFFIX="${{ github.event.inputs.kernel_suffix }}"
+          else
+            FINAL_SUFFIX="${{ env.KERNEL_NAME }}"
+          fi
+          
+          echo "强制内核版本后缀为: -${FINAL_SUFFIX}"
+          
+          SCRIPT="./common/scripts/setlocalversion"
+          if [[ -f "$SCRIPT" ]]; then
+            # 1. 屏蔽 scm_version 函数中所有产生输出的命令（printf/echo）
+            sed -i '/^scm_version()/,/^}/ {
+                s/printf/:\ printf/g;
+                s/echo\([^"]*\)/:\ echo\1/g;
+                s/printf/:\ printf/g;
+            }' "$SCRIPT"
+            
+            # 2. 将最后一行（最终输出行）替换为固定后缀
+            # 匹配以 echo "${KERNELVERSION} 开头的行，替换为固定后缀
+            sed -i "\$s|^echo.*|echo \"-${FINAL_SUFFIX}\"|" "$SCRIPT"
+            
+            # 3. 移除 -dirty 标记（保留原逻辑）
+            sed -i 's/ -dirty//g' "$SCRIPT"
+            
+            # 4. 可选：注释掉 collect_files 等无关调用（不必须）
+            
+            chmod +x "$SCRIPT"
+            echo "✅ setlocalversion 已适配修改"
+          else
+            echo "错误：未找到 $SCRIPT"
+            exit 1
+          fi
+          
+          # 修改 defconfig 中的配置（与原逻辑一致）
+          if [[ -f ./common/arch/arm64/configs/gki_defconfig ]]; then
+            grep -v '^CONFIG_LOCALVERSION=' ./common/arch/arm64/configs/gki_defconfig > ./common/arch/arm64/configs/gki_defconfig.tmp
+            echo "CONFIG_LOCALVERSION=\"-${FINAL_SUFFIX}\"" >> ./common/arch/arm64/configs/gki_defconfig.tmp
+            mv ./common/arch/arm64/configs/gki_defconfig.tmp ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
+            sed -i "s/-4k/-${FINAL_SUFFIX}/g" ./common/arch/arm64/configs/gki_defconfig
+          else
+            echo "警告：未找到 gki_defconfig"
+          fi
+          
+          # 输出验证信息
+          echo "::group::✅ 内核版本后缀修改完成"
+          echo "最终后缀: -${FINAL_SUFFIX}"
+          echo "完整版本预计为: ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${FINAL_SUFFIX}"
+          echo "::endgroup::"
       
       # ==================== 构建内核 ====================
       - name: 构建内核
