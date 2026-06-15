@@ -95,6 +95,11 @@ on:
         required: true
         type: boolean
         default: 'true'
+      unicode_bypass:
+        type: boolean
+        description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
+        required: true
+        default: 'false'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
@@ -556,6 +561,27 @@ jobs:
           cd ./common
           curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+
+      - name: Apply UNICODE_BYPASS
+        if: inputs.unicode_bypass
+        run: |
+            cd kernel_workspace/common
+            # 从 Makefile 提取内核主版本号
+            KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
+            if [ "$KERNEL_MAJOR" -lt 6 ]; then
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
+            else
+              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
+            fi
+            echo "下载补丁: $PATCH_URL"
+            wget -O unicode_bypass.patch "$PATCH_URL"
+            patch -p1 --forward < unicode_bypass.patch || true
+            # 检查是否有拒绝文件（补丁失败）
+            if find . -name "*.rej" -print -quit | grep -q .; then
+              echo "::warning::Unicode 绕过补丁部分失败，请检查 .rej 文件"
+            else
+              echo "Unicode 绕过补丁应用成功"
+            fi
 
       - name: 添加制作名称
         run: |
