@@ -108,6 +108,11 @@ on:
         required: false
         type: string
         default: 'https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git;after_patch|https://github.com/xingguangcuican6666/ABK_FIDO_KEY_MODULE.git;before_build|https://github.com/xingguangcuican6666/ABK_control_module.git;after_patch|https://github.com/xingguangcuican6666/ABK_control_module.git;before_build'
+      abk_ddk_enable:
+        description: '是否集成 Xingguang-DDK LSM（实验性））'
+        required: true
+        type: boolean
+        default: 'false'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
@@ -544,6 +549,19 @@ jobs:
             curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           fi
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+
+      - name: 应用 Xingguang-DDK LSM（实验性）
+        if: inputs.abk_ddk_enable
+        run: |
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/main/ddk.tar.gz -O ddk.tar.gz
+          tar -xzf ddk.tar.gz
+          cd ddk
+          export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
+          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' setup.sh
+          bash setup.sh
+          cd $GKI_ROOT
+          echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
 
       # ==================== 新增：解析并克隆 ABK 模块（生成清单） ====================
       - name: 解析并克隆 ABK 模块
@@ -1236,8 +1254,6 @@ jobs:
           - ADIOS IO调度器支持：${{ github.event.inputs.adios_enable }}
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
-          - ABK FIDO Key 模块：${{ github.event.inputs.abk_fido_enable }}
-          - ABK Control 模块：${{ github.event.inputs.abk_control_enable }}
           - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable }}（实验性）
           - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass }}
           - ABK 外部模块：${{ github.event.inputs.abk_modules }}
@@ -1248,8 +1264,6 @@ jobs:
           
           ### ⏫️ 更新内容：
           - 更新${{ env.KSU_TYPENAME }}至最新版本（${{ needs.build.outputs.ksuver }}）
-          - 新增 ABK FIDO Key Module，使手机可作为 USB FIDO2 安全密钥使用
-          - 新增 ABK Control Module，提供内核控制框架和模块管理接口
           
           ### 📋 安装方法 | Installation Guide
           1. 若你的手机已经安装了第三方Recovery（如TWRP)，可下载对应机型的AnyKernel刷机包后进入Recovery模式，通过Recovery刷入刷机包后重启设备；
