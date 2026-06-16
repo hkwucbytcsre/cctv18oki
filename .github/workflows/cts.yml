@@ -778,8 +778,6 @@ jobs:
         env:
           ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
           ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
-          ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
-          ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
           ABK_BUILD_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
           ABK_BUILD_SUB_LEVEL: ${{ env.SUB_VERSION }}
           ABK_BUILD_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
