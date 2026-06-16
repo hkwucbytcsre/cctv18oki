@@ -803,7 +803,7 @@ jobs:
             echo "清单为空，跳过 after_patch"
             exit 0
           fi
-      
+
           STAGE="after_patch"
           while IFS=$'\t' read -r stage module_dir repo_url kind group_url child_id; do
             [ "$stage" = "$STAGE" ] || continue
@@ -818,10 +818,9 @@ jobs:
               export ABK_MODULE_ENTRY_KIND="$kind"
               export ABK_MODULE_GROUP_REPO_URL="$group_url"
               export ABK_MODULE_CHILD_ID="$child_id"
-              # 修正：使用 GITHUB_WORKSPACE 绝对路径
+              export CUSTOM_EXTERNAL_MODULE_STAGE="$stage"
               export KERNEL_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
               export DEFCONFIG="$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
-              # 所有 ABK_BUILD_* 和 ABK_FEATURE_* 已通过 env 传入
               bash setup.sh
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
@@ -868,56 +867,57 @@ jobs:
           echo "SUBLEVEL_MODIFIED=true" >> $GITHUB_ENV
 
           # ==================== 阶段2: ABK 模块 before_build ====================
-          - name: 执行 ABK 模块 (before_build)
-            if: github.event.inputs.abk_modules != ''
-            env:
-              ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
-              ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
-              ABK_BUILD_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
-              ABK_BUILD_SUB_LEVEL: ${{ env.SUB_VERSION }}
-              ABK_BUILD_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
-              ABK_BUILD_VERSION: ${{ github.event.inputs.kernel_suffix }}
-              ABK_BUILD_TIME: ${{ github.event.inputs.build_time }}
-              ABK_FEATURE_SUSFS: ${{ github.event.inputs.susfs_enable }}
-              ABK_FEATURE_KPM: ${{ github.event.inputs.kpm_enable }}
-              ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_enable }}
-              ABK_FEATURE_LZ4KD: ${{ github.event.inputs.lz4kd_enable }}
-              ABK_FEATURE_BBR: ${{ github.event.inputs.bbr_enable }}
-              ABK_FEATURE_DROIDSPACES: ${{ github.event.inputs.droidspaces_enable }}
-              ABK_FEATURE_BETTER_NET: ${{ github.event.inputs.better_net }}
-              ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
-              ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
-              ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-              ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
-              ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
-            run: |
-              set -euo pipefail
-              cd kernel_workspace
-              MANIFEST="$ABK_MANIFEST"
-              if [ ! -s "$MANIFEST" ]; then
-                echo "清单为空，跳过 before_build"
-                exit 0
-              fi
-    
-              STAGE="before_build"
-              while IFS=$'\t' read -r stage module_dir repo_url kind group_url child_id; do
-                [ "$stage" = "$STAGE" ] || continue
-                echo "执行模块 [$STAGE] $repo_url"
-                if [ ! -f "$module_dir/setup.sh" ]; then
-                  echo "::warning::模块 $repo_url 缺少 setup.sh，跳过"
-                  continue
-                fi
-                chmod +x "$module_dir/setup.sh"
-                (
-                  cd "$module_dir"
-                  export ABK_MODULE_ENTRY_KIND="$kind"
-                  export ABK_MODULE_GROUP_REPO_URL="$group_url"
-                  export ABK_MODULE_CHILD_ID="$child_id"
-                  export KERNEL_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
-                  export DEFCONFIG="$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
-                  bash setup.sh
-                ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
-              done < "$MANIFEST"
+      - name: 执行 ABK 模块 (before_build)
+        if: github.event.inputs.abk_modules != ''
+        env:
+          ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
+          ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
+          ABK_BUILD_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
+          ABK_BUILD_SUB_LEVEL: ${{ env.SUB_VERSION }}
+          ABK_BUILD_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
+          ABK_BUILD_VERSION: ${{ github.event.inputs.kernel_suffix }}
+          ABK_BUILD_TIME: ${{ github.event.inputs.build_time }}
+          ABK_FEATURE_SUSFS: ${{ github.event.inputs.susfs_enable }}
+          ABK_FEATURE_KPM: ${{ github.event.inputs.kpm_enable }}
+          ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_enable }}
+          ABK_FEATURE_LZ4KD: ${{ github.event.inputs.lz4kd_enable }}
+          ABK_FEATURE_BBR: ${{ github.event.inputs.bbr_enable }}
+          ABK_FEATURE_DROIDSPACES: ${{ github.event.inputs.droidspaces_enable }}
+          ABK_FEATURE_BETTER_NET: ${{ github.event.inputs.better_net }}
+          ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
+          ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
+          ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
+          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
+          ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
+        run: |
+          set -euo pipefail
+          cd kernel_workspace
+          MANIFEST="$ABK_MANIFEST"
+          if [ ! -s "$MANIFEST" ]; then
+            echo "清单为空，跳过 before_build"
+            exit 0
+          fi
+
+          STAGE="before_build"
+          while IFS=$'\t' read -r stage module_dir repo_url kind group_url child_id; do
+            [ "$stage" = "$STAGE" ] || continue
+            echo "执行模块 [$STAGE] $repo_url"
+            if [ ! -f "$module_dir/setup.sh" ]; then
+              echo "::warning::模块 $repo_url 缺少 setup.sh，跳过"
+              continue
+            fi
+            chmod +x "$module_dir/setup.sh"
+            (
+              cd "$module_dir"
+              export ABK_MODULE_ENTRY_KIND="$kind"
+              export ABK_MODULE_GROUP_REPO_URL="$group_url"
+              export ABK_MODULE_CHILD_ID="$child_id"
+              export CUSTOM_EXTERNAL_MODULE_STAGE="$stage"
+              export KERNEL_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
+              export DEFCONFIG="$KERNEL_ROOT/common/arch/arm64/configs/gki_defconfig"
+              bash setup.sh
+            ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
+          done < "$MANIFEST"
 
       # ==================== 新增：ABK Control 桥接校验 ====================
       - name: 校验 ABK Control 桥接
