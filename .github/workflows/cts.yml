@@ -898,7 +898,7 @@ jobs:
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
       # ==================== 内核名称和构建时间设置 ====================
-            - name: 自定义构建时间
+      - name: 自定义构建时间
         if: inputs.build_time != '-1'
         run: |
           cd kernel_workspace/common
