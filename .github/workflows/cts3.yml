@@ -85,6 +85,19 @@ on:
         required: true
         type: boolean
         default: 'true'
+      adios_implementation:
+        description: 'ADIOS IO调度器实现方式 (simple: 仅添加配置; full: 应用补丁源码)'
+        required: true
+        type: choice
+        default: 'simple'
+        options:
+          - 'simple'
+          - 'full'
+      enable_scx:
+        description: '启用风驰 (SCX) numbersf'
+        required: true
+        type: boolean
+        default: true
       rekernel_enable:
         description: '是否启用Re-Kernel支持(与Freezer/NoActive等软件配合, 提升应用冻结能力)'
         required: true
@@ -555,13 +568,65 @@ jobs:
             fi
           fi
 
-      - name: 启用ADIOS IO调度器
+      - name: 🔧 Add adios_ioscheduler (添加 ADIOS I/O 调度器支持)
         if: inputs.adios_enable
+        working-directory: kernel_workspace/common
+        env:
+          ADIOS_IMPLEMENTATION: ${{ github.event.inputs.adios_implementation }}
         run: |
-          echo "正在启用ADIOS IO调度器(将截止时间优先调度算法与基于自主学习的自适应延迟控制算法相结合, 降低I/O延迟)…"
-          cd kernel_workspace
-          echo "CONFIG_MQ_IOSCHED_ADIOS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_MQ_IOSCHED_DEFAULT_ADIOS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          if [ "${{ env.ADIOS_IMPLEMENTATION }}" = "full" ]; then
+            echo "使用完整补丁方式添加 ADIOS I/O 调度器..."
+            # 从 qdykernel 仓库下载补丁（若需更换来源可调整 URL）
+            PATCH_URL="https://raw.githubusercontent.com/qdykernel/Build_Oneplus_Realme_Action/main/patch/adios_ioscheduler_6.6.patch"
+            wget -O adios_ioscheduler_6.6.patch "$PATCH_URL" || { echo "下载补丁失败"; exit 1; }
+            if [ -f "block/adios.c" ]; then
+              echo "✓ ADIOS I/O 调度器文件已存在，跳过应用补丁"
+            else
+              echo "正在应用 ADIOS I/O 调度器补丁..."
+              if patch -p1 --ignore-whitespace -F 3 < adios_ioscheduler_6.6.patch 2>&1 | tee /tmp/adios_patch.log; then
+                echo "✓ ADIOS I/O 调度器补丁应用成功"
+              else
+                echo "::warning::ADIOS 补丁应用出现问题"
+                if grep -q "malformed patch" /tmp/adios_patch.log; then
+                  patch -p1 --force --ignore-whitespace < adios_ioscheduler_6.6.patch || true
+                fi
+              fi
+              rm -f adios_ioscheduler_6.6.patch
+            fi
+          else
+            echo "使用简化配置方式添加 ADIOS I/O 调度器 (仅添加配置)"
+          fi
+          # 统一添加配置选项（如果补丁已包含，重复添加不会造成问题）
+          if ! grep -q "CONFIG_MQ_IOSCHED_ADIOS" arch/arm64/configs/gki_defconfig; then
+            echo "CONFIG_MQ_IOSCHED_ADIOS=y" >> arch/arm64/configs/gki_defconfig
+            echo "CONFIG_MQ_IOSCHED_DEFAULT_ADIOS=y" >> arch/arm64/configs/gki_defconfig
+            echo "✓ 已启用 ADIOS I/O 调度器支持"
+          fi
+          echo "✓ ADIOS I/O 调度器支持配置完成"
+
+      - name: 🔧 Apply SCX  补丁
+        if: inputs.enable_scx
+        run: |
+          echo "正在检测内核源码是否已包含完美风驰补丁..."
+          cd kernel_workspace/common
+      
+          # 检测 HMBIRD 调度器是否存在（补丁特征）
+          if [ -d "kernel/sched/hmbird" ] && [ -f "kernel/sched/hmbird/hmbird.c" ]; then
+            echo "✓ 检测到 HMBIRD 调度器已存在，跳过补丁应用"
+            exit 0
+          fi
+      
+          echo "未检测到 HMBIRD 调度器，正在应用完美风驰补丁..."
+          git clone --depth=1 https://github.com/Numbersf/SCHED_PATCH.git -b sm8750
+          PATCH_FILE="fengchi_oneplus_13_b.patch"
+          if [ -f "SCHED_PATCH/$PATCH_FILE" ]; then
+            dos2unix "SCHED_PATCH/$PATCH_FILE"
+            patch -p1 -F 3 < "SCHED_PATCH/$PATCH_FILE"
+            echo "✓ 完美风驰补丁应用成功"
+          else
+            echo "::error::未找到补丁文件 $PATCH_FILE"
+            exit 1
+          fi
 
       - name: 启用Re-Kernel支持
         if: inputs.rekernel_enable
