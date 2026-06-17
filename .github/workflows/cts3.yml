@@ -604,15 +604,30 @@ jobs:
           fi
           echo "✓ ADIOS I/O 调度器支持配置完成"
 
-      - name: 🔧 Apply SCX  补丁
+      - name: 🔧 Apply SCX (完美风驰) 补丁
         if: inputs.enable_scx
         run: |
-          echo "正在检测内核源码是否已包含完美风驰补丁..."
+          echo "正在检测内核源码是否已包含完美风驰 (HMBIRD) 补丁..."
           cd kernel_workspace/common
       
-          # 检测 HMBIRD 调度器是否存在（补丁特征）
+          # 组合检测：调度器目录 + 配置选项
+          PATCH_DETECTED=false
           if [ -d "kernel/sched/hmbird" ] && [ -f "kernel/sched/hmbird/hmbird.c" ]; then
-            echo "✓ 检测到 HMBIRD 调度器已存在，跳过补丁应用"
+            echo "  ✓ 发现 HMBIRD 调度器源码目录"
+            if grep -q "CONFIG_HMBIRD_SCHED=y" arch/arm64/configs/gki_defconfig; then
+              echo "  ✓ 发现 CONFIG_HMBIRD_SCHED=y 配置"
+              PATCH_DETECTED=true
+            fi
+          fi
+      
+          # 额外可选检查：调度类符号（作为辅助验证）
+          if [ "$PATCH_DETECTED" = false ] && grep -rq "hmbird_sched_class" kernel/sched/; then
+            echo "  ✓ 在调度源码中发现 hmbird_sched_class 符号"
+            PATCH_DETECTED=true
+          fi
+      
+          if [ "$PATCH_DETECTED" = true ]; then
+            echo "✓ 已检测到 HMBIRD 调度器补丁，跳过应用"
             exit 0
           fi
       
