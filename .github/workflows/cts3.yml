@@ -157,6 +157,8 @@ jobs:
       actions: write
       contents: read
     steps:
+      - name: Checkout 当前仓库
+        uses: actions/checkout@v4
       - name: 安装环境依赖+初始化源码仓库及llvm-Clang18工具链
         run: |
           rm -rf kernel_workspace
@@ -672,25 +674,24 @@ jobs:
           export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
           export DEFCONFIG="$GKI_ROOT/common/arch/arm64/configs/gki_defconfig"
       
-          # 自动查找 ddk/setup.sh（无论它在哪个子目录）
-          DDK_SETUP="$(find "$GITHUB_WORKSPACE" -type f -name "setup.sh" -path "*/ddk/setup.sh" | head -n1)"
-          if [ -z "$DDK_SETUP" ]; then
-            echo "❌ 未找到 ddk/setup.sh，请检查仓库是否包含该文件"
-            exit 1
+          # 将内核源码初始化为 Git 仓库（供 setup.sh 中的 git apply 使用）
+          cd "$GKI_ROOT/common"
+          if [ ! -d ".git" ]; then
+            git init
+            git add .
+            git commit -m "Initial kernel source for DDK patching" --no-gpg-sign
           fi
-          echo "✅ 找到 DDK setup.sh: $DDK_SETUP"
-          DDK_DIR="$(dirname "$DDK_SETUP")"
       
-          # 修正 setup.sh 的路径变量
-          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$DDK_SETUP"
+          # 修正 setup.sh 中的 GKI_ROOT 变量
+          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$GITHUB_WORKSPACE/ddk/setup.sh"
       
           echo "应用 Xingguang DDK patch 栈并启用内建 LSM"
-          bash "$DDK_SETUP"
+          bash "$GITHUB_WORKSPACE/ddk/setup.sh"
       
-          # 验证补丁头文件
+          # 验证补丁成功
           test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
       
-          # 幂等配置写入
+          # 幂等追加配置
           grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
       
           echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
