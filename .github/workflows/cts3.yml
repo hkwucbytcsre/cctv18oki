@@ -194,7 +194,9 @@ jobs:
           fi
           aria2c -s16 -x16 -k1M "$KERNEL_ZIP_URL" -o common.zip && 
           unzip -q common.zip && 
-          mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_15.0.2_oneplus_13_6.6.66" common &&
+          # 自动获取解压出的顶层目录名
+          EXTRACTED_DIR=$(unzip -Z -1 common.zip | head -n1 | sed 's|/.*||') &&
+          mv "$EXTRACTED_DIR" common &&
           rm -rf common.zip &
           
           echo "正在克隆llvm-clang18工具链..." &&
