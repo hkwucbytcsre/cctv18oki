@@ -22,6 +22,11 @@ on:
           - 'ksunext'
           - 'ksu'
           - 'none'
+      kernel_source_url:
+        description: '自定义内核源码 ZIP 地址（留空则使用默认）'
+        required: false
+        type: string
+        default: ''
       sublevel:
         description: '自定义内核等级欺骗(SUBLEVEL)，留空则不修改'
         required: false
@@ -183,7 +188,11 @@ jobs:
           rm -f ./ccache &
           
           echo "正在克隆源码仓库..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_15.0.2_oneplus_13_6.6.66.zip -o common.zip && 
+          KERNEL_ZIP_URL="${{ github.event.inputs.kernel_source_url }}"
+          if [ -z "$KERNEL_ZIP_URL" ]; then
+            KERNEL_ZIP_URL="https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_15.0.2_oneplus_13_6.6.66.zip"
+          fi
+          aria2c -s16 -x16 -k1M "$KERNEL_ZIP_URL" -o common.zip && 
           unzip -q common.zip && 
           mv "android_kernel_common_oneplus_sm8750-oneplus-sm8750_v_15.0.2_oneplus_13_6.6.66" common &&
           rm -rf common.zip &
