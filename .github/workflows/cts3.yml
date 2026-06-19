@@ -667,15 +667,17 @@ jobs:
       - name: 应用 Xingguang-DDK LSM（实验性）
         if: inputs.abk_ddk_enable
         run: |
-          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/main/ddk.tar.gz -O ddk.tar.gz
-          tar -xzf ddk.tar.gz
-          cd ddk
+          set -e
           export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
-          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' setup.sh
-          bash setup.sh
-          cd $GKI_ROOT
-          echo "CONFIG_XINGGUANG_DDK=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "ABK DDK (Xingguang-DDK LSM) 集成完成。"
+          export DEFCONFIG="$GKI_ROOT/common/arch/arm64/configs/gki_defconfig"
+          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$GITHUB_WORKSPACE/ddk/setup.sh"
+          echo "应用 Xingguang DDK patch 栈并启用内建 LSM"
+          bash "$GITHUB_WORKSPACE/ddk/setup.sh"
+          # 标准验证：确保补丁头文件已生成
+          test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
+          # 幂等写入配置（避免重复追加）
+          grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
+          echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
 
       # ==================== 新增：解析并克隆 ABK 模块（生成清单） ====================
       - name: 解析并克隆 ABK 模块
