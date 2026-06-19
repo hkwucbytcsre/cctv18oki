@@ -668,15 +668,31 @@ jobs:
         if: inputs.abk_ddk_enable
         run: |
           set -e
+      
           export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
           export DEFCONFIG="$GKI_ROOT/common/arch/arm64/configs/gki_defconfig"
-          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$GITHUB_WORKSPACE/ddk/setup.sh"
+      
+          # 自动查找 ddk/setup.sh（无论它在哪个子目录）
+          DDK_SETUP="$(find "$GITHUB_WORKSPACE" -type f -name "setup.sh" -path "*/ddk/setup.sh" | head -n1)"
+          if [ -z "$DDK_SETUP" ]; then
+            echo "❌ 未找到 ddk/setup.sh，请检查仓库是否包含该文件"
+            exit 1
+          fi
+          echo "✅ 找到 DDK setup.sh: $DDK_SETUP"
+          DDK_DIR="$(dirname "$DDK_SETUP")"
+      
+          # 修正 setup.sh 的路径变量
+          sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$DDK_SETUP"
+      
           echo "应用 Xingguang DDK patch 栈并启用内建 LSM"
-          bash "$GITHUB_WORKSPACE/ddk/setup.sh"
-          # 标准验证：确保补丁头文件已生成
+          bash "$DDK_SETUP"
+      
+          # 验证补丁头文件
           test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
-          # 幂等写入配置（避免重复追加）
+      
+          # 幂等配置写入
           grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
+      
           echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
 
       # ==================== 新增：解析并克隆 ABK 模块（生成清单） ====================
