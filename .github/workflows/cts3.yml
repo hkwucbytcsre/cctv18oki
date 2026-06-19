@@ -674,27 +674,25 @@ jobs:
           export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
           export DEFCONFIG="$GKI_ROOT/common/arch/arm64/configs/gki_defconfig"
       
-          # 1. 将内核源码初始化为 Git 仓库（供 setup.sh 中的 git apply 使用）
+          # 1. 初始化 Git 仓库并创建空提交（满足 git apply 对 HEAD 的依赖，无文件添加输出）
           cd "$GKI_ROOT/common"
           if [ ! -d ".git" ]; then
             git init
-            # 设置仓库级别的用户信息（避免全局缺失）
             git config user.email "runner@github.com"
             git config user.name "GitHub Actions Runner"
-            git add .
-            git commit -m "Initial kernel source for DDK patching" --no-gpg-sign
+            git commit --allow-empty -m "Initial empty commit for DDK patching" --no-gpg-sign
           fi
       
-          # 2. 修正 setup.sh 中的 GKI_ROOT 变量，使其优先使用我们传入的环境变量
+          # 2. 修正 setup.sh 的 GKI_ROOT 变量
           sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$GITHUB_WORKSPACE/ddk/setup.sh"
       
           echo "应用 Xingguang DDK patch 栈并启用内建 LSM"
           bash "$GITHUB_WORKSPACE/ddk/setup.sh"
       
-          # 3. 验证补丁头文件是否生成
+          # 3. 验证补丁头文件
           test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
       
-          # 4. 幂等追加配置（避免重复）
+          # 4. 幂等追加配置
           grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
       
           echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
