@@ -14,87 +14,79 @@ env:
 on:
   workflow_dispatch:
     inputs:
-      # ========== 原有输入（保留，部分将被新选项覆盖） ==========
+      # ===== 核心功能开关 =====
       SUSFS:
-        description: 'Enable SuSFS (Enhances hide environment)'
-        required: true
-        type: boolean
-        default: true
-      lz4_enable:
-        description: 'Install LZ4 1.10.0 + ZSTD 1.5.7 Patch'
+        description: 'Enable SuSFS (hide environment)'
         required: true
         type: boolean
         default: true
       bbr_enable:
-        description: "Enable TCP BBR/Brutal (false=off, true=add, default=set as default)"
+        description: "TCP BBR/Brutal: false=off, true=add, default=set as default"
         required: true
         type: choice
         default: 'true'
-        options:
-          - 'false'
-          - 'true'
-          - 'default'
-      adios_enable:
-        description: 'Enable ADIOS IO Scheduler (Improves IO read/write performance)'
-        required: true
-        type: boolean
-        default: true
-      rekernel_enable:
-        description: 'Enable Re-Kernel Support (Enhances app freezing via NoActive/Freezer)'
-        required: true
-        type: boolean
-        default: false
-      baseband_guard:
-        description: 'Enable Baseband Guard (Anti-brick modem protection)'
-        required: true
-        type: boolean
-        default: true
+        options: ['false', 'true', 'default']
       lto_type:
-        description: 'LTO Optimization (none = fast compile, thin = default, full = slow)'
+        description: 'LTO optimization (none=fast, thin=default, full=slow)'
         required: true
         type: choice
         default: 'thin'
-        options:
-          - 'none'
-          - 'thin'
-          - 'full'
-      fengchi:                      # 将被 enable_scx 替代，但保留兼容
-        description: 'Enable Fengchi / HMBIRD Optimization (deprecated, use enable_scx)'
+        options: ['none', 'thin', 'full']
+      lz4_opt:
+        description: 'LZ4/ZSTD options: none, lz4 (1.10.0), lz4kd, both'
+        required: true
+        type: choice
+        default: 'lz4'
+        options: ['none', 'lz4', 'lz4kd', 'both']
+      adios_opt:
+        description: 'ADIOS IO scheduler: off, simple (config only), full (apply patch)'
+        required: true
+        type: choice
+        default: 'simple'
+        options: ['off', 'simple', 'full']
+      rekernel_enable:
+        description: 'Re-Kernel (enhance app freezing via NoActive/Freezer)'
         required: true
         type: boolean
         default: false
+      bbg_opt:
+        description: 'Baseband Guard: off, cctv18 (source), vc-teahouse (source)'
+        required: true
+        type: choice
+        default: 'cctv18'
+        options: ['off', 'cctv18', 'vc-teahouse']
       unicode_fix:
-        description: 'Enable Unicode Bypass Fix (path traversal protection)'
+        description: 'Unicode bypass fix (path traversal protection)'
         required: true
         type: boolean
         default: true
       zram_writeback:
-        description: 'Enable ZRAM Writeback (better memory management)'
+        description: 'ZRAM writeback (better memory management)'
         required: true
         type: boolean
         default: false
       schedutil_opt:
-        description: 'Enable SchedUtil optimizations (better CPU governor)'
+        description: 'SchedUtil governor optimizations'
         required: true
         type: boolean
         default: false
       cpu_opt:
-        description: 'CPU Optimizations (Oryon MCPU tuning for SM8750)'
+        description: 'CPU optimizations (Oryon SM8750 tuning)'
         required: true
         type: boolean
         default: true
       f2fs_opt:
-        description: 'F2FS Optimizations (better flash storage performance)'
+        description: 'F2FS optimizations (flash storage performance)'
         required: true
         type: boolean
         default: false
       wireguard:
-        description: 'Enable WireGuard VPN support'
+        description: 'WireGuard VPN support'
         required: true
         type: boolean
         default: true
       wakelock_blocker:
-        description: 'Enable Wakelock Blocker (better idle battery drain)'
+        description: 'Wakelock blocker (reduce idle drain)'
         required: true
         type: boolean
         default: true
@@ -103,101 +95,34 @@ on:
         required: true
         type: boolean
         default: true
-      ntsync_enable:               # 将被 droidspaces 的 standard 模式包含，但保留独立开关
-        description: 'Enable NTSync (low-latency NT sync primitives) – now part of Droidspaces standard'
-        required: true
-        type: boolean
-        default: false
-      droidspaces_enable:          # 改为 choice
-        description: 'Droidspaces container support (false/standard/extend)'
+      droidspaces_enable:
+        description: 'Droidspaces container: off, standard (incl. NTSync), extend (extra drivers)'
         required: true
         type: choice
         default: 'standard'
-        options:
-          - 'false'
-          - 'standard'
-          - 'extend'
-      ip_set_enable:               # 将被 better_net 覆盖
-        description: 'Enable IP_SET + IPv6 NAT (deprecated, use better_net)'
-        required: true
-        type: boolean
-        default: false
-      ttl_enable:                  # 将被 better_net 覆盖
-        description: 'Enable TTL/HL Target (deprecated, use better_net)'
-        required: true
-        type: boolean
-        default: false
+        options: ['off', 'standard', 'extend']
       mem_opt_patches:
-        description: 'Enable memory/scheduler optimization patches (from WildKernels)'
+        description: 'Memory & scheduler optimization patches (from WildKernels)'
         required: true
         type: boolean
         default: true
-
-      # ========== 新增输入（来自配置2） ==========
-      ksu_type:
-        description: 'KernelSU branch (resukisu/sukisu/ksunext/ksu/none)'
-        required: true
-        type: choice
-        default: 'resukisu'
-        options:
-          - 'resukisu'
-          - 'sukisu'
-          - 'ksunext'
-          - 'ksu'
-          - 'none'
-      kpm_enable:
-        description: 'Enable Kpatch-Next (independent KPM)'
-        required: true
-        type: boolean
-        default: false
-      lz4kd_enable:
-        description: 'Apply LZ4KD patch (may not need if lz4+zstd enabled)'
-        required: true
-        type: boolean
-        default: false
-      adios_implementation:
-        description: 'ADIOS implementation (simple: only config, full: apply patch)'
-        required: true
-        type: choice
-        default: 'simple'
-        options:
-          - 'simple'
-          - 'full'
       enable_scx:
-        description: 'Enable SCX/HMBIRD (Fengchi) scheduler optimization (replaces fengchi)'
+        description: 'Enable SCX/HMBIRD (Fengchi) scheduler'
         required: true
         type: boolean
         default: false
-      bbg_source:
-        description: 'Baseband Guard source (cctv18 / vc-teahouse)'
-        required: true
-        type: choice
-        default: 'cctv18'
-        options:
-          - 'cctv18'
-          - 'vc-teahouse'
       better_net:
-        description: 'Enable network enhancements (IP_SET + IPv6 NAT + TTL)'
+        description: 'Network enhancements: IP_SET + IPv6 NAT + TTL'
         required: true
         type: boolean
         default: false
-      sublevel:
-        description: 'Custom SUBLEVEL (leave empty to keep original)'
-        required: false
-        type: string
-        default: ''
-      build_time:
-        description: 'Custom build time (F=UTC, -1=off, empty=default)'
-        required: false
-        type: string
-        default: ''
       version_tag:
-        description: 'Custom version tag for KSU display'
+        description: 'Custom version tag for KernelSU display (e.g. mybuild)'
         required: false
         type: string
-        default: ''
+        default: 'palaziks'
       kernel_suffix:
-        description: 'Kernel suffix (do not start with hyphen)'
+        description: 'Kernel suffix (do NOT start with hyphen, e.g. mykernel)'
         required: false
         type: string
         default: ''
@@ -206,16 +131,6 @@ on:
         required: false
         type: string
         default: ''
-      abk_ddk_enable:
-        description: 'Enable Xingguang-DDK LSM (experimental)'
-        required: true
-        type: boolean
-        default: false
-      ccache_update:
-        description: 'Force update ccache cache (refresh when needed)'
-        required: true
-        type: boolean
-        default: false
 
 jobs:
   build:
@@ -399,70 +314,34 @@ jobs:
           echo "Updating atime to achieve cache eviction..."
           find "${{ env.CCACHE_DIR }}" -type f -exec touch -t $(date -d "1 day ago" +%Y%m%d%H%M) {} + || true
 
-      # ========== KernelSU 安装（支持多种分支） ==========
-      - name: Setup KernelSU
+      # ===== 安装 ReSukiSU（固定）并注入自定义版本标签 =====
+      - name: Setup ReSukiSU
         id: ksu_version
         run: |
           cd kernel_workspace/common
+          echo "Setting up ReSukiSU..."
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
 
-          KSU_TYPE="${{ github.event.inputs.ksu_type }}"
-          VERSION_TAG="${{ github.event.inputs.version_tag }}"
-          [[ -z "$VERSION_TAG" ]] && VERSION_TAG="palaziks"
+          cd KernelSU
+          git reset --hard HEAD && git clean -fd
+          KSU_VERSION_COUNT=$(git rev-list --count HEAD)
+          KSUVER=$(expr $KSU_VERSION_COUNT + 30700)
+          echo "KSUVER=$KSUVER" >> $GITHUB_ENV
+          echo "ksuver=$KSUVER" >> $GITHUB_OUTPUT
 
-          case "$KSU_TYPE" in
-            resukisu|sukisu)
-              echo "Setting up ReSukiSU (also used for SukiSU compatibility)..."
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
-              cd KernelSU
-              git reset --hard HEAD && git clean -fd
-              # 版本号
-              KSU_VERSION_COUNT=$(git rev-list --count HEAD)
-              KSUVER=$(expr $KSU_VERSION_COUNT + 30700)
-              REAL_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
-              REAL_COMMIT=$(git rev-parse --short HEAD)
-              echo "KSUVER=$KSUVER" >> $GITHUB_ENV
-              echo "ksuver=$KSUVER" >> $GITHUB_OUTPUT
-              # 注入自定义版本字符串
-              KBUILD_FILE="kernel/Kbuild"
-              if [ -f "$KBUILD_FILE" ]; then
-                sed -i '/-DKSU_VERSION_FULL=/d' "$KBUILD_FILE"
-                echo "ccflags-y += -DKSU_VERSION_FULL=\\\"v${REAL_TAG}-${REAL_COMMIT}@${VERSION_TAG}\\\"" >> "$KBUILD_FILE"
-              fi
-              ;;
-            ksunext)
-              echo "Setting up KernelSU Next..."
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
-              cd KernelSU-Next
-              rm -rf .git
-              KSUVER=$(expr $(curl -sI "https://api.github.com/repos/pershoot/KernelSU-Next/commits?sha=dev&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
-              echo "KSUVER=$KSUVER" >> $GITHUB_ENV
-              echo "ksuver=$KSUVER" >> $GITHUB_OUTPUT
-              sed -i "s/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := $KSUVER/g" kernel/Kbuild
-              KSU_GIT_TAG=$(curl -sL "https://api.github.com/repos/KernelSU-Next/KernelSU-Next/tags" | grep -o '"name": *"[^"]*"' | head -n 1 | sed 's/"name": "//;s/"//')
-              sed -i "s/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := $KSU_GIT_TAG/g" kernel/Kbuild
-              # 添加 WildKSU 签名补丁
-              cd ../common/drivers/kernelsu
-              wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/apk_sign.patch 2>/dev/null || true
-              patch -p2 -N -F 3 < apk_sign.patch || true
-              ;;
-            ksu)
-              echo "Setting up Vanilla KernelSU..."
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/refs/heads/main/kernel/setup.sh" | bash -s main
-              cd KernelSU
-              KSUVER=$(expr $(curl -sI "https://api.github.com/repos/tiann/KernelSU/commits?sha=main&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
-              echo "KSUVER=$KSUVER" >> $GITHUB_ENV
-              echo "ksuver=$KSUVER" >> $GITHUB_OUTPUT
-              sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSUVER}/" kernel/Kbuild
-              ;;
-            none)
-              echo "No built-in KernelSU selected."
-              echo "KSUVER=0" >> $GITHUB_ENV
-              echo "ksuver=0" >> $GITHUB_OUTPUT
-              ;;
-          esac
+          # 注入自定义版本字符串
+          KBUILD_FILE="kernel/Kbuild"
+          if [ -f "$KBUILD_FILE" ]; then
+            sed -i '/-DKSU_VERSION_FULL=/d' "$KBUILD_FILE"
+            TAG="${{ github.event.inputs.version_tag }}"
+            [ -z "$TAG" ] && TAG="palaziks"
+            REAL_TAG=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0")
+            REAL_COMMIT=$(git rev-parse --short HEAD)
+            echo "ccflags-y += -DKSU_VERSION_FULL=\\\"v${REAL_TAG}-${REAL_COMMIT}@${TAG}\\\"" >> "$KBUILD_FILE"
+          fi
           cd ../..
 
-      # ========== 补丁应用（原有 + 新增） ==========
+      # ===== 补丁应用（整合所有特性） =====
       - name: Setup Patches
         run: |
           cd kernel_workspace
@@ -478,16 +357,15 @@ jobs:
 
           cd ./common
 
-          # SUSFS 补丁（保留原有逻辑，增加 hide_stuff）
+          # ---- SUSFS ----
           if [ "${{ github.event.inputs.SUSFS }}" == "true" ]; then
             cp ../susfs4oki/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./
             cp ../susfs4oki/kernel_patches/fs/* ./fs/
             cp ../susfs4oki/kernel_patches/include/linux/* ./include/linux/
-            # 额外隐藏补丁（来自配置2）
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/69_hide_stuff.patch -O 69_hide_stuff.patch 2>/dev/null || true
             patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
             patch -p1 -N -F 3 < 69_hide_stuff.patch || true
-            # 配置1原有的 task_mmu.c 处理（保留）
+            # task_mmu.c 特殊处理（原配置1逻辑）
             sed -i '/#define SENTINEL_VMA_GATE/a #include <linux/susfs.h>' fs/proc/task_mmu.c
             awk '
             /smap_gather_stats\(vma, &mss, last_vma_end\);/ {
@@ -501,12 +379,22 @@ jobs:
             ' fs/proc/task_mmu.c > fs/proc/task_mmu.c.tmp && mv fs/proc/task_mmu.c.tmp fs/proc/task_mmu.c
           fi
 
-          # 原有补丁（POLLY等）
+          # ---- POLLY ----
           cp ../kernel_patches/common/EnablePOLLY.patch ./
           git apply -p1 < EnablePOLLY.patch || true
 
-          # ====== LZ4KD 补丁（新增） ======
-          if [ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]; then
+          # ---- LZ4 和 LZ4KD（根据 lz4_opt） ----
+          LZ4_OPT="${{ github.event.inputs.lz4_opt }}"
+          if [ "$LZ4_OPT" = "lz4" ] || [ "$LZ4_OPT" = "both" ]; then
+            echo "Applying LZ4 1.10.0 + ZSTD 1.5.7..."
+            git clone --depth=1 https://github.com/$GITHUB_REPOSITORY.git -b $GITHUB_REF_NAME $GITHUB_ACTOR
+            cp ./$GITHUB_ACTOR/zram_patch/001-lz4.patch ./
+            cp ./$GITHUB_ACTOR/zram_patch/lz4armv8.S ./lib/
+            cp ./$GITHUB_ACTOR/zram_patch/002-zstd.patch ./
+            git apply -p1 < 001-lz4.patch || true
+            patch -p1 < 002-zstd.patch || true
+          fi
+          if [ "$LZ4_OPT" = "lz4kd" ] || [ "$LZ4_OPT" = "both" ]; then
             echo "Applying LZ4KD patch..."
             git clone --depth=1 https://github.com/ShirkNeko/SukiSU_patch.git /tmp/sukisu_patch
             cp -r /tmp/sukisu_patch/other/zram/lz4k/include/linux/* ./include/linux/
@@ -516,24 +404,19 @@ jobs:
             patch -p1 -F 3 < lz4kd.patch || true
           fi
 
-          # ====== ADIOS full 实现（新增） ======
-          if [ "${{ github.event.inputs.adios_enable }}" == "true" ] && [ "${{ github.event.inputs.adios_implementation }}" == "full" ]; then
+          # ---- ADIOS full ----
+          ADIOS_OPT="${{ github.event.inputs.adios_opt }}"
+          if [ "$ADIOS_OPT" = "full" ]; then
             echo "Applying ADIOS full patch..."
             PATCH_URL="https://raw.githubusercontent.com/qdykernel/Build_Oneplus_Realme_Action/main/patch/adios_ioscheduler_6.6.patch"
-            wget -O adios.patch "$PATCH_URL" || true
+            wget -O adios.patch "$PATCH_URL" 2>/dev/null || true
             if [ -f adios.patch ]; then
               patch -p1 --ignore-whitespace -F 3 < adios.patch || true
             fi
           fi
 
-          # ====== SCX / 风驰（智能检测） ======
-          SCX_ENABLED=false
+          # ---- SCX / 风驰（智能检测） ----
           if [ "${{ github.event.inputs.enable_scx }}" == "true" ]; then
-            SCX_ENABLED=true
-          elif [ "${{ github.event.inputs.fengchi }}" == "true" ]; then
-            SCX_ENABLED=true
-          fi
-          if [ "$SCX_ENABLED" == "true" ]; then
             echo "Processing SCX/HMBIRD optimization..."
             if [ -d "kernel/sched/hmbird" ] && grep -q "CONFIG_HMBIRD_SCHED=y" arch/arm64/configs/gki_defconfig; then
               echo "SCX already present, skipping."
@@ -550,43 +433,38 @@ jobs:
             fi
           fi
 
-          # ====== Droidspaces（根据 choice） ======
+          # ---- Droidspaces (standard/extend) ----
           DROID_MODE="${{ github.event.inputs.droidspaces_enable }}"
-          if [ "$DROID_MODE" != "false" ]; then
+          if [ "$DROID_MODE" != "off" ]; then
             echo "Applying Droidspaces patches ($DROID_MODE)..."
-            # 基础补丁（来自配置2）
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch -O fix_sysvipc.patch 2>/dev/null || true
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/fix_oplus_bsp_midas.patch -O fix_midas.patch 2>/dev/null || true
             patch -p1 -F 3 < fix_sysvipc.patch || true
             patch -p1 -F 3 < fix_midas.patch || true
-            # NTSync (standard模式或独立开关开启)
-            if [ "$DROID_MODE" == "standard" ] || [ "${{ github.event.inputs.ntsync_enable }}" == "true" ]; then
-              wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/ntsync_base.patch -O ntsync_base.patch 2>/dev/null || true
-              wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/ntsync_compat_android15-6.6.patch -O ntsync_compat.patch 2>/dev/null || true
-              patch -p1 -F 3 < ntsync_base.patch || true
-              patch -p1 -F 3 < ntsync_compat.patch || true
-            fi
-            # extend 模式：EVDI 驱动
-            if [ "$DROID_MODE" == "extend" ]; then
+            # NTSync (standard 或 extend 均启用)
+            wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/ntsync_base.patch -O ntsync_base.patch 2>/dev/null || true
+            wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/ntsync_compat_android15-6.6.patch -O ntsync_compat.patch 2>/dev/null || true
+            patch -p1 -F 3 < ntsync_base.patch || true
+            patch -p1 -F 3 < ntsync_compat.patch || true
+            if [ "$DROID_MODE" = "extend" ]; then
               wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/droidspaces_patch/evdi_drm.patch -O evdi.patch 2>/dev/null || true
               patch -p1 -F 3 < evdi.patch || true
             fi
           fi
 
-          # ====== 网络增强（better_net）取代独立开关 ======
+          # ---- 网络增强 better_net ----
           if [ "${{ github.event.inputs.better_net }}" == "true" ]; then
             echo "Enabling better_net (IP_SET + IPv6 NAT + TTL)..."
-            # 配置将在 defconfig 中添加
-            # 应用 IPv6 NAT 修复补丁（来自 WildKernels）
+            # IPv6 NAT fix
             if [ -f "../wildkernels_patches/common/IPv6_NAT_FIX.patch" ]; then
               patch -p1 -F 3 < ../wildkernels_patches/common/IPv6_NAT_FIX.patch || true
             fi
-            # 隐藏 vintf 警告补丁
+            # 隐藏 vintf 警告
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/config.patch -O config.patch 2>/dev/null || true
             patch -p1 -F 3 < config.patch || true
           fi
 
-          # ====== Unicode Bypass（用配置2的方式） ======
+          # ---- Unicode bypass（使用配置2方式） ----
           if [ "${{ github.event.inputs.unicode_fix }}" == "true" ]; then
             echo "Applying Unicode bypass fix..."
             KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile || echo 6)
@@ -599,7 +477,7 @@ jobs:
             patch -p1 --forward < unicode_bypass.patch || true
           fi
 
-          # ====== 原有内存优化补丁（保留） ======
+          # ---- 内存优化补丁（原配置1） ----
           if [ "${{ github.event.inputs.mem_opt_patches }}" == "true" ]; then
             echo "Applying WildKernels memory/scheduler patches..."
             PATCHES_DIR="../wildkernels_patches/common"
@@ -610,9 +488,10 @@ jobs:
             done
           fi
 
-          echo "Base patches applied."
+          echo "All patches applied."
 
-      - name: Fix SUSFS selinux symbol linkage (builtin ReSukiSU)
+      # ---- 修复 SUSFS 符号链接（同原配置1） ----
+      - name: Fix SUSFS selinux symbol linkage
         if: github.event.inputs.SUSFS == 'true'
         working-directory: kernel_workspace/common
         run: |
@@ -620,7 +499,6 @@ jobs:
           RULES="KernelSU/kernel/selinux/rules.c"
           sed -i '/^#define ALL NULL/a\\n#ifdef CONFIG_KSU_SUSFS\nstruct selinux_policy *backup_sepolicy;\n#endif' "$RULES"
           sed -i '/rcu_assign_pointer(selinux_state.policy, pol);/a#ifdef CONFIG_KSU_SUSFS\n    backup_sepolicy = pol;\n#endif' "$RULES"
-          echo "✅ backup_sepolicy configured"
 
       - name: Fix missing KSU static key symbols (SUSFS=false)
         if: github.event.inputs.SUSFS != 'true'
@@ -638,7 +516,7 @@ jobs:
             's|extern struct static_key_false ksu_init_rc_hook_key_false;|struct static_key_false ksu_init_rc_hook_key_false = STATIC_KEY_FALSE_INIT;\nEXPORT_SYMBOL_GPL(ksu_init_rc_hook_key_false);|' \
             "$KSUD"
 
-      # ========== ABK 外部模块（新增） ==========
+      # ---- ABK 外部模块（from 配置2） ----
       - name: Parse and clone ABK modules
         if: github.event.inputs.abk_modules != ''
         env:
@@ -859,22 +737,16 @@ jobs:
           ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
           ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
           ABK_BUILD_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
-          ABK_BUILD_SUB_LEVEL: ${{ env.SUB_VERSION }}
-          ABK_BUILD_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
+          ABK_BUILD_KSU_VARIANT: "resukisu"   # 固定
           ABK_BUILD_VERSION: ${{ github.event.inputs.kernel_suffix }}
-          ABK_BUILD_TIME: ${{ github.event.inputs.build_time }}
           ABK_FEATURE_SUSFS: ${{ github.event.inputs.SUSFS }}
-          ABK_FEATURE_KPM: ${{ github.event.inputs.kpm_enable }}
-          ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_enable }}
-          ABK_FEATURE_LZ4KD: ${{ github.event.inputs.lz4kd_enable }}
+          ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_opt }}
           ABK_FEATURE_BBR: ${{ github.event.inputs.bbr_enable }}
           ABK_FEATURE_DROIDSPACES: ${{ github.event.inputs.droidspaces_enable }}
           ABK_FEATURE_BETTER_NET: ${{ github.event.inputs.better_net }}
-          ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
+          ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_opt }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
-          ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
-          ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_fix }}
+          ABK_FEATURE_BBG: ${{ github.event.inputs.bbg_opt }}
         run: |
           set -euo pipefail
           cd kernel_workspace
@@ -901,13 +773,13 @@ jobs:
             ) || exit 1
           done < "$MANIFEST"
 
-      # ========== 内核配置（原有 + 新增） ==========
+      # ---- 内核配置 ----
       - name: Configure Kernel Options
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
 
-          # 基础配置（原有）
+          # 基础
           echo "CONFIG_KSU=y" >> "$DEFCONFIG"
           echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$DEFCONFIG"
@@ -918,7 +790,7 @@ jobs:
           echo "CONFIG_LD_DEAD_CODE_DATA_ELIMINATION=y" >> "$DEFCONFIG"
           echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$DEFCONFIG"
 
-          # SUSFS 配置
+          # SUSFS
           if [ "${{ github.event.inputs.SUSFS }}" == "true" ]; then
             echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
@@ -935,12 +807,11 @@ jobs:
             echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG"
           fi
 
-          # LZ4KD 配置
-          if [ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]; then
+          # LZ4KD
+          LZ4_OPT="${{ github.event.inputs.lz4_opt }}"
+          if [ "$LZ4_OPT" = "lz4kd" ] || [ "$LZ4_OPT" = "both" ]; then
             echo "CONFIG_ZSMALLOC=y" >> "$DEFCONFIG"
             echo "CONFIG_CRYPTO_LZ4HC=y" >> "$DEFCONFIG"
             echo "CONFIG_CRYPTO_LZ4K=y" >> "$DEFCONFIG"
@@ -948,9 +819,9 @@ jobs:
             echo "CONFIG_CRYPTO_842=y" >> "$DEFCONFIG"
           fi
 
-          # Droidspaces 配置
+          # Droidspaces
           DROID_MODE="${{ github.event.inputs.droidspaces_enable }}"
-          if [ "$DROID_MODE" != "false" ]; then
+          if [ "$DROID_MODE" != "off" ]; then
             echo "CONFIG_PID_NS=y" >> "$DEFCONFIG"
             echo "CONFIG_IPC_NS=y" >> "$DEFCONFIG"
             echo "CONFIG_SYSVIPC=y" >> "$DEFCONFIG"
@@ -960,18 +831,15 @@ jobs:
             echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$DEFCONFIG"
             echo "CONFIG_NETFILTER_XT_TARGET_LOG=y" >> "$DEFCONFIG"
             echo "CONFIG_NETFILTER_XT_MATCH_RECENT=y" >> "$DEFCONFIG"
-            # NTSync
-            if [ "$DROID_MODE" == "standard" ] || [ "${{ github.event.inputs.ntsync_enable }}" == "true" ]; then
-              echo "CONFIG_NTSYNC=y" >> "$DEFCONFIG"
-            fi
-            if [ "$DROID_MODE" == "extend" ]; then
+            echo "CONFIG_NTSYNC=y" >> "$DEFCONFIG"   # standard 和 extend 均启用
+            if [ "$DROID_MODE" = "extend" ]; then
               echo "CONFIG_BT_HCIVHCI=y" >> "$DEFCONFIG"
               echo "CONFIG_STATIC_USERMODEHELPER=n" >> "$DEFCONFIG"
               echo "CONFIG_DRM_LINDROID_EVDI=y" >> "$DEFCONFIG"
             fi
           fi
 
-          # 网络增强（better_net）
+          # better_net
           if [ "${{ github.event.inputs.better_net }}" == "true" ]; then
             echo "CONFIG_BPF_STREAM_PARSER=y" >> "$DEFCONFIG"
             echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$DEFCONFIG"
@@ -988,23 +856,9 @@ jobs:
             echo "CONFIG_IP6_NF_MATCH_HL=y" >> "$DEFCONFIG"
           fi
 
-          # 原有独立开关兼容（如果 better_net 未开启，但单独开启 ip_set_enable 或 ttl_enable）
-          if [ "${{ github.event.inputs.better_net }}" != "true" ]; then
-            if [ "${{ github.event.inputs.ip_set_enable }}" == "true" ]; then
-              echo "CONFIG_IP_SET=y" >> "$DEFCONFIG"
-              echo "CONFIG_IP_SET_MAX=65534" >> "$DEFCONFIG"
-              echo "CONFIG_IP6_NF_NAT=y" >> "$DEFCONFIG"
-              echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> "$DEFCONFIG"
-            fi
-            if [ "${{ github.event.inputs.ttl_enable }}" == "true" ]; then
-              echo "CONFIG_IP_NF_TARGET_TTL=y" >> "$DEFCONFIG"
-              echo "CONFIG_IP6_NF_TARGET_HL=y" >> "$DEFCONFIG"
-              echo "CONFIG_IP6_NF_MATCH_HL=y" >> "$DEFCONFIG"
-            fi
-          fi
-
-          # ADIOS (配置)
-          if [ "${{ github.event.inputs.adios_enable }}" == "true" ]; then
+          # ADIOS (simple 或 full 都添加配置)
+          ADIOS_OPT="${{ github.event.inputs.adios_opt }}"
+          if [ "$ADIOS_OPT" != "off" ]; then
             echo "CONFIG_MQ_IOSCHED_ADIOS=y" >> "$DEFCONFIG"
             echo "CONFIG_MQ_IOSCHED_DEFAULT_ADIOS=y" >> "$DEFCONFIG"
           fi
@@ -1014,8 +868,9 @@ jobs:
             echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
           fi
 
-          # Baseband Guard
-          if [ "${{ github.event.inputs.baseband_guard }}" == "true" ]; then
+          # Baseband Guard (bbg_opt)
+          BBG_OPT="${{ github.event.inputs.bbg_opt }}"
+          if [ "$BBG_OPT" != "off" ]; then
             echo "CONFIG_BBG=y" >> "$DEFCONFIG"
           fi
 
@@ -1044,7 +899,7 @@ jobs:
             echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> "$DEFCONFIG"
           fi
 
-          # BBR & Brutal
+          # BBR
           if [ "${{ github.event.inputs.bbr_enable }}" != "false" ]; then
             echo "CONFIG_TCP_CONG_ADVANCED=y" >> "$DEFCONFIG"
             echo "CONFIG_TCP_CONG_BBR=y" >> "$DEFCONFIG"
@@ -1064,9 +919,10 @@ jobs:
           fi
 
           # LTO
-          if [ "${{ github.event.inputs.lto_type }}" == "none" ]; then
+          LTO="${{ github.event.inputs.lto_type }}"
+          if [ "$LTO" == "none" ]; then
             echo "CONFIG_LTO_CLANG_NONE=y" >> "$DEFCONFIG"
-          elif [ "${{ github.event.inputs.lto_type }}" == "full" ]; then
+          elif [ "$LTO" == "full" ]; then
             echo "CONFIG_LTO_CLANG_FULL=y" >> "$DEFCONFIG"
           else
             echo "CONFIG_LTO_CLANG_THIN=y" >> "$DEFCONFIG"
@@ -1093,87 +949,28 @@ jobs:
             echo "CONFIG_NO_HZ_IDLE=y" >> "$DEFCONFIG"
           fi
 
-          # SCX (HMBIRD) 配置
-          if [ "${{ github.event.inputs.enable_scx }}" == "true" ] || [ "${{ github.event.inputs.fengchi }}" == "true" ]; then
+          # SCX
+          if [ "${{ github.event.inputs.enable_scx }}" == "true" ]; then
             echo "CONFIG_SCHED_CLASS_EXT=y" >> "$DEFCONFIG"
             echo "CONFIG_OPLUS_FEATURE_HMBIRD_BOOST=y" >> "$DEFCONFIG"
             echo "CONFIG_OPLUS_FEATURE_HMBIRD_SCHED=y" >> "$DEFCONFIG"
           fi
 
-          # ABK DDK
-          if [ "${{ github.event.inputs.abk_ddk_enable }}" == "true" ]; then
-            echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
-          fi
-
           echo "Defconfig updated."
 
-      - name: Apply Baseband Guard (separate step)
-        if: inputs.baseband_guard
+      # ---- Baseband Guard 安装（根据 bbg_opt） ----
+      - name: Apply Baseband Guard
+        if: github.event.inputs.bbg_opt != 'off'
         run: |
           cd kernel_workspace/common
-          if [ "${{ github.event.inputs.bbg_source }}" == "vc-teahouse" ]; then
+          if [ "${{ github.event.inputs.bbg_opt }}" == "vc-teahouse" ]; then
             curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           else
             curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           fi
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
-      - name: Apply Xingguang-DDK LSM (experimental)
-        if: inputs.abk_ddk_enable
-        run: |
-          set -e
-          export GKI_ROOT="$GITHUB_WORKSPACE/kernel_workspace"
-          export DEFCONFIG="$GKI_ROOT/common/arch/arm64/configs/gki_defconfig"
-          cd "$GKI_ROOT/common"
-          if [ ! -d ".git" ]; then
-            git init
-            git config user.email "runner@github.com"
-            git config user.name "GitHub Actions Runner"
-            git commit --allow-empty -m "Initial empty commit for DDK patching" --no-gpg-sign
-          fi
-          # 假设 ddk 仓库已存在于 runner 工作区（需提前 clone，这里简化，可自行添加）
-          # 如果不存在则跳过，或从网络获取
-          if [ -d "$GITHUB_WORKSPACE/ddk" ]; then
-            sed -i 's/^GKI_ROOT="$(pwd)"$/GKI_ROOT="${GKI_ROOT:-$(pwd)}"/' "$GITHUB_WORKSPACE/ddk/setup.sh"
-            bash "$GITHUB_WORKSPACE/ddk/setup.sh"
-            test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
-            grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
-            echo "✅ Xingguang-DDK integrated."
-          else
-            echo "::warning::DDK directory not found, skipping."
-          fi
-
-      - name: Custom build time and sublevel
-        run: |
-          cd kernel_workspace/common
-
-          # SUBLEVEL
-          if [ -n "${{ github.event.inputs.sublevel }}" ]; then
-            echo "Modifying SUBLEVEL to ${{ github.event.inputs.sublevel }}"
-            sed -i "s/^\(SUBLEVEL[[:space:]]*=[[:space:]]*\).*/\1${{ github.event.inputs.sublevel }}/" Makefile
-          fi
-
-          # Build time
-          INPUT_TIME="${{ github.event.inputs.build_time }}"
-          if [ "$INPUT_TIME" != "-1" ]; then
-            if [ "$INPUT_TIME" == "F" ]; then
-              DATESTR="$(TZ='UTC' date +'%a %b %d %T %Z %Y')"
-            elif [ -n "$INPUT_TIME" ]; then
-              DATESTR="$INPUT_TIME"
-            else
-              DATESTR=""
-            fi
-            if [ -n "$DATESTR" ]; then
-              echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> $GITHUB_ENV
-              echo "KBUILD_BUILD_VERSION=1" >> $GITHUB_ENV
-              for f in ./scripts/mkcompile_h; do
-                if [ -f "$f" ]; then
-                  perl -pi -e "s{UTS_VERSION=\"\\\$\\(.*?\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
-                fi
-              done
-            fi
-          fi
-
+      # ---- 自定义内核后缀（从 inputs.kernel_suffix） ----
       - name: Set kernel suffix
         run: |
           cd kernel_workspace
@@ -1186,7 +983,6 @@ jobs:
           if [ -f "$SCRIPT" ]; then
             sed -i 's/ -dirty//g' "$SCRIPT"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$SCRIPT"
-            # 替换 echo 行
             if grep -q 'KERNELVERSION.*scm_version' "$SCRIPT"; then
               sed -i "s|echo \"\${KERNELVERSION}.*scm_version}\"|echo \"\${KERNELVERSION}-${SUFFIX}\"|" "$SCRIPT"
             elif grep -q 'echo "\$res"' "$SCRIPT"; then
@@ -1196,7 +992,6 @@ jobs:
             fi
             chmod +x "$SCRIPT"
           fi
-          # defconfig
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
           if [ -f "$DEFCONFIG" ]; then
             grep -v '^CONFIG_LOCALVERSION=' "$DEFCONFIG" > "$DEFCONFIG.tmp"
@@ -1206,28 +1001,23 @@ jobs:
             sed -i "s/-4k/-${SUFFIX}/g" "$DEFCONFIG"
           fi
 
+      # ---- 执行 ABK before_build ----
       - name: Execute ABK modules (before_build)
         if: github.event.inputs.abk_modules != ''
         env:
           ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
           ABK_BUILD_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
           ABK_BUILD_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
-          ABK_BUILD_SUB_LEVEL: ${{ env.SUB_VERSION }}
-          ABK_BUILD_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
+          ABK_BUILD_KSU_VARIANT: "resukisu"
           ABK_BUILD_VERSION: ${{ github.event.inputs.kernel_suffix }}
-          ABK_BUILD_TIME: ${{ github.event.inputs.build_time }}
           ABK_FEATURE_SUSFS: ${{ github.event.inputs.SUSFS }}
-          ABK_FEATURE_KPM: ${{ github.event.inputs.kpm_enable }}
-          ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_enable }}
-          ABK_FEATURE_LZ4KD: ${{ github.event.inputs.lz4kd_enable }}
+          ABK_FEATURE_LZ4: ${{ github.event.inputs.lz4_opt }}
           ABK_FEATURE_BBR: ${{ github.event.inputs.bbr_enable }}
           ABK_FEATURE_DROIDSPACES: ${{ github.event.inputs.droidspaces_enable }}
           ABK_FEATURE_BETTER_NET: ${{ github.event.inputs.better_net }}
-          ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
+          ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_opt }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
-          ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
-          ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_fix }}
+          ABK_FEATURE_BBG: ${{ github.event.inputs.bbg_opt }}
         run: |
           set -euo pipefail
           cd kernel_workspace
@@ -1254,6 +1044,7 @@ jobs:
             ) || exit 1
           done < "$MANIFEST"
 
+      # ---- 构建内核（带时间劫持） ----
       - name: Build Kernel
         run: |
           WORKDIR="$(pwd)"
@@ -1313,20 +1104,9 @@ jobs:
           ccache -s
           df -h
 
-      - name: Apply KPM (Kpatch-Next)
-        if: inputs.kpm_enable
-        run: |
-          echo "Applying Kpatch-Next..."
-          cd kernel_workspace/common/out/arch/arm64/boot
-          wget https://github.com/KernelSU-Next/KPatch-Next/releases/latest/download/kptools-linux
-          wget https://github.com/KernelSU-Next/KPatch-Next/releases/latest/download/kpimg-linux
-          chmod +x ./kptools-linux
-          ./kptools-linux -p -i ./Image -k ./kpimg-linux -o ./oImage
-          rm -f Image
-          mv oImage Image
-
+      # ---- 保存 CCache 和 LTO 缓存 ----
       - name: Save New CCache
-        if: success() && (inputs.ccache_update || steps.ccache-restore.outputs.cache-hit != 'true')
+        if: success()
         uses: actions/cache/save@v5
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -1339,6 +1119,7 @@ jobs:
           path: ${{ env.LDCACHE_DIR }}
           key: lto-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
 
+      # ---- 打包 AK3 ----
       - name: Package AK3 ZIP
         id: create_zip
         run: |
@@ -1352,27 +1133,14 @@ jobs:
             exit 1
           fi
 
-          # 确定 KSU 类型显示
           KSU_TYPENAME="ReSukiSU"
-          case "${{ github.event.inputs.ksu_type }}" in
-            sukisu) KSU_TYPENAME="SukiSU" ;;
-            resukisu) KSU_TYPENAME="ReSukiSU" ;;
-            ksunext) KSU_TYPENAME="KSUNext" ;;
-            ksu) KSU_TYPENAME="KSU" ;;
-            none) KSU_TYPENAME="None" ;;
-          esac
-
-          if [ "${{ github.event.inputs.lz4kd_enable }}" == "true" ]; then
-            wget https://raw.githubusercontent.com/$GITHUB_REPOSITORY/refs/heads/$GITHUB_REF_NAME/zram.zip 2>/dev/null || true
-          fi
-
           SUFFIX="${{ github.event.inputs.kernel_suffix }}"
           [ -z "$SUFFIX" ] && SUFFIX="${{ env.KERNEL_NAME }}"
           AK3_NAME="AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${SUFFIX}.zip"
           zip -r ../$AK3_NAME ./*
           echo "ak3name=$AK3_NAME" >> $GITHUB_OUTPUT
 
-          # 生成日志
+          # 日志
           FULL_VERSION="${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${SUFFIX}"
           TIME_NOW="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
           echo "Author: $GITHUB_ACTOR" > ./ak3.log
@@ -1385,17 +1153,15 @@ jobs:
           echo "KSU Branch: ${KSU_TYPENAME}" >> ./ak3.log
           echo "KSU Ver: ${{ env.KSUVER }}" >> ./ak3.log
           echo "SuSFS: ${{ github.event.inputs.SUSFS }}" >> ./ak3.log
-          echo "KPM: ${{ github.event.inputs.kpm_enable }}" >> ./ak3.log
-          echo "LZ4: ${{ github.event.inputs.lz4_enable }}" >> ./ak3.log
-          echo "LZ4KD: ${{ github.event.inputs.lz4kd_enable }}" >> ./ak3.log
-          echo "BBR&Brutal: ${{ github.event.inputs.bbr_enable }}" >> ./ak3.log
-          echo "ADIOS: ${{ github.event.inputs.adios_enable }}" >> ./ak3.log
+          echo "LZ4: ${{ github.event.inputs.lz4_opt }}" >> ./ak3.log
+          echo "BBR: ${{ github.event.inputs.bbr_enable }}" >> ./ak3.log
+          echo "ADIOS: ${{ github.event.inputs.adios_opt }}" >> ./ak3.log
           echo "Re-Kernel: ${{ github.event.inputs.rekernel_enable }}" >> ./ak3.log
-          echo "BBG: ${{ github.event.inputs.baseband_guard }}" >> ./ak3.log
-          echo "NTSync: ${{ github.event.inputs.ntsync_enable }}" >> ./ak3.log
+          echo "BBG: ${{ github.event.inputs.bbg_opt }}" >> ./ak3.log
           echo "Droidspaces: ${{ github.event.inputs.droidspaces_enable }}" >> ./ak3.log
           echo "Better_Net: ${{ github.event.inputs.better_net }}" >> ./ak3.log
           echo "MemOpt: ${{ github.event.inputs.mem_opt_patches }}" >> ./ak3.log
+          echo "SCX: ${{ github.event.inputs.enable_scx }}" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
       - name: Upload AnyKernel3
@@ -1413,7 +1179,6 @@ jobs:
             unzip -q zram.zip -d zram
             find zram -name "zram.ko" -exec cp "$ZRAM_KO" {} \;
             rm -f zram.zip
-            echo "ZRAM module packaged."
           fi
 
       - name: Upload zram.zip (if exists)
@@ -1423,6 +1188,7 @@ jobs:
           name: zram-module
           path: ./zram/*
 
+      # ---- Telegram 通知（保留原有） ----
       - name: Send Telegram Notification (Success)
         if: success()
         env:
@@ -1438,7 +1204,7 @@ jobs:
           TIME_NOW="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
 
           export TG_KERNEL_VERSION="6.6.139"
-          export TG_KSU_DISPLAY="ReSukiSU" # 可细化
+          export TG_KSU_DISPLAY="ReSukiSU"
           export TG_KSUVER="${{ env.KSUVER }}"
           export TG_SUFFIX="${{ env.FINAL_SUFFIX }}"
           export TG_LTO="${{ github.event.inputs.lto_type }}"
@@ -1448,12 +1214,11 @@ jobs:
           export TG_REPO="${{ github.repository }}"
           export TG_SUSFS="${{ github.event.inputs.SUSFS }}"
           export TG_BBR="${{ github.event.inputs.bbr_enable }}"
-          export TG_ADIOS="${{ github.event.inputs.adios_enable }}"
-          export TG_BBG="${{ github.event.inputs.baseband_guard }}"
-          export TG_LZ4="${{ github.event.inputs.lz4_enable }}"
+          export TG_ADIOS="${{ github.event.inputs.adios_opt }}"
+          export TG_BBG="${{ github.event.inputs.bbg_opt }}"
+          export TG_LZ4="${{ github.event.inputs.lz4_opt }}"
           export TG_MM="true"
-          export TG_FENGCHI="${{ github.event.inputs.fengchi }}"
-          export TG_HMBIRD="false"
+          export TG_SCX="${{ github.event.inputs.enable_scx }}"
           export TG_UFIX="${{ github.event.inputs.unicode_fix }}"
           export TG_ZWB="${{ github.event.inputs.zram_writeback }}"
           export TG_SCHED="${{ github.event.inputs.schedutil_opt }}"
@@ -1462,21 +1227,18 @@ jobs:
           export TG_F2FS="${{ github.event.inputs.f2fs_opt }}"
           export TG_WG="${{ github.event.inputs.wireguard }}"
           export TG_WLB="${{ github.event.inputs.wakelock_blocker }}"
-          export TG_NTSYNC="${{ github.event.inputs.ntsync_enable }}"
           export TG_DROIDSPACES="${{ github.event.inputs.droidspaces_enable }}"
           export TG_BETTER_NET="${{ github.event.inputs.better_net }}"
           export TG_MEM_OPT="${{ github.event.inputs.mem_opt_patches }}"
-          export TG_KPM="${{ github.event.inputs.kpm_enable }}"
-          export TG_LZ4KD="${{ github.event.inputs.lz4kd_enable }}"
 
           TELEGRAPH_URL=$(python3 << 'PYEOF'
           import json, urllib.request, urllib.parse, os
           e = os.environ.get
           def feat(val, name):
-              icon = "✅" if val == "true" else "❌"
+              icon = "✅" if val == "true" or (val not in ['false','off','none']) else "❌"
               return {"tag": "li", "children": [f"{icon} {name}"]}
           content = [
-              {"tag": "h3", "children": ["OnePlus 13 (PJZ110) — palaziks kernel (Enhanced)"]},
+              {"tag": "h3", "children": ["OnePlus 13 (PJZ110) — Enhanced Kernel"]},
               {"tag": "hr"},
               {"tag": "h4", "children": ["📋 Build Info"]},
               {"tag": "ul", "children": [
@@ -1493,25 +1255,22 @@ jobs:
               {"tag": "h4", "children": ["⚡ Features"]},
               {"tag": "ul", "children": [
                   feat(e("TG_SUSFS"),   "SuSFS"),
-                  feat(e("TG_KPM"),     "Kpatch-Next (KPM)"),
-                  feat("true" if e("TG_BBR") != "false" else "false", f"BBR/Brutal ({e('TG_BBR')})"),
-                  feat(e("TG_ADIOS"),   "ADIOS IO Scheduler"),
-                  feat(e("TG_BBG"),     "Baseband Guard"),
-                  feat(e("TG_LZ4"),     "LZ4 1.10.0 + ZSTD 1.5.7"),
-                  feat(e("TG_LZ4KD"),   "LZ4KD"),
-                  feat(e("TG_MM"),      "Multi-Manager Support"),
-                  feat(e("TG_FENGCHI"), "Fengchi/SCX"),
-                  feat(e("TG_UFIX"),    "Unicode Bypass Fix"),
-                  feat(e("TG_ZWB"),     "ZRAM Writeback"),
-                  feat(e("TG_SCHED"),  "SchedUtil Optimizations"),
-                  feat(e("TG_CPU_OPT"),"Oryon CPU Optimizations"),
-                  feat(e("TG_F2FS"),   "F2FS Optimizations"),
-                  feat(e("TG_WG"),     "WireGuard VPN kernel level support"),
-                  feat(e("TG_WLB"),    "Wakelock Blocker"),
-                  feat(e("TG_NTSYNC"),      "NTSync"),
-                  feat(e("TG_DROIDSPACES"), "Droidspaces"),
-                  feat(e("TG_BETTER_NET"),  "Better Net (IP_SET+IPv6NAT+TTL)"),
-                  feat(e("TG_MEM_OPT"),     "Memory & Scheduler Optimizations"),
+                  feat(e("TG_BBR")!="false" and "BBR/Brutal" or "BBR off", "BBR/Brutal"),
+                  feat(e("TG_ADIOS")!="off" and f"ADIOS ({e('TG_ADIOS')})" or "ADIOS off", "ADIOS"),
+                  feat(e("TG_BBG")!="off" and f"Baseband Guard ({e('TG_BBG')})" or "BBG off", "BBG"),
+                  feat(e("TG_LZ4")!="none" and f"LZ4: {e('TG_LZ4')}" or "LZ4 off", "LZ4"),
+                  feat("true", "Multi-Manager"),
+                  feat(e("TG_SCX"), "SCX/Fengchi"),
+                  feat(e("TG_UFIX"), "Unicode Fix"),
+                  feat(e("TG_ZWB"), "ZRAM Writeback"),
+                  feat(e("TG_SCHED"), "SchedUtil"),
+                  feat(e("TG_CPU_OPT"), "Oryon CPU"),
+                  feat(e("TG_F2FS"), "F2FS"),
+                  feat(e("TG_WG"), "WireGuard"),
+                  feat(e("TG_WLB"), "Wakelock Blocker"),
+                  feat(e("TG_DROIDSPACES")!="off" and f"Droidspaces ({e('TG_DROIDSPACES')})" or "Droidspaces off", "Droidspaces"),
+                  feat(e("TG_BETTER_NET"), "Better Net"),
+                  feat(e("TG_MEM_OPT"), "Mem/Sched Opt"),
               ]},
               {"tag": "hr"},
               {"tag": "h4", "children": ["📥 Installation"]},
@@ -1626,15 +1385,6 @@ jobs:
           echo "TIME_FORM=$TIME_FORM" >> $GITHUB_ENV
           TAG_HEAD="OPPO-OPlus-Realme-build"
           echo "TAG_HEAD=$TAG_HEAD" >> $GITHUB_ENV
-          # 确定KSU名称
-          case "${{ github.event.inputs.ksu_type }}" in
-            sukisu) KSU_TYPENAME="SukiSU Ultra" ;;
-            resukisu) KSU_TYPENAME="ReSukiSU" ;;
-            ksunext) KSU_TYPENAME="KernelSU Next" ;;
-            ksu) KSU_TYPENAME="KSU" ;;
-            *) KSU_TYPENAME="无内置KSU" ;;
-          esac
-          echo "KSU_TYPENAME=$KSU_TYPENAME" >> $GITHUB_ENV
 
       - name: Create Release
         if: ${{ github.event.inputs.github_release == 'true' }}
@@ -1643,25 +1393,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cat << 'EOF' > release_notes.md
-          ### 📱 OnePlus 13 ${{ env.KSU_TYPENAME }} SM8750 Custom Kernel (Enhanced)
+          ### 📱 OnePlus 13 ReSukiSU SM8750 Custom Kernel (Enhanced)
           - **Kernel Version:** ${{ env.FULL_VERSION }}
           - **Build Time:** ${{ env.TIME_FORM }}
-          - **KSU Branch:** ${{ env.KSU_TYPENAME }}
-          - **SuSFS:** ${{ github.event.inputs.SUSFS }}
-          - **KPM (Kpatch-Next):** ${{ github.event.inputs.kpm_enable }}
-          - **LZ4 1.10.0+ZSTD:** ${{ github.event.inputs.lz4_enable }}
-          - **LZ4KD:** ${{ github.event.inputs.lz4kd_enable }}
-          - **BBR/Brutal:** ${{ github.event.inputs.bbr_enable }}
-          - **ADIOS IO:** ${{ github.event.inputs.adios_enable }}
-          - **Re-Kernel:** ${{ github.event.inputs.rekernel_enable }}
-          - **Baseband Guard:** ${{ github.event.inputs.baseband_guard }} (source: ${{ github.event.inputs.bbg_source }})
-          - **NTSync:** ${{ github.event.inputs.ntsync_enable }}
-          - **Droidspaces:** ${{ github.event.inputs.droidspaces_enable }}
-          - **Better Net (IP_SET+IPv6NAT+TTL):** ${{ github.event.inputs.better_net }}
-          - **Unicode Fix:** ${{ github.event.inputs.unicode_fix }}
-          - **Memory/Sched Optimizations:** ${{ github.event.inputs.mem_opt_patches }}
-          - **ABK DDK (Xingguang-DDK):** ${{ github.event.inputs.abk_ddk_enable }}
-          - **ABK Modules:** ${{ github.event.inputs.abk_modules }}
+          - **KSU Branch:** ReSukiSU
+          - **Features:**
+            - SuSFS: ${{ github.event.inputs.SUSFS }}
+            - LZ4/ZSTD: ${{ github.event.inputs.lz4_opt }}
+            - BBR/Brutal: ${{ github.event.inputs.bbr_enable }}
+            - ADIOS: ${{ github.event.inputs.adios_opt }}
+            - Re-Kernel: ${{ github.event.inputs.rekernel_enable }}
+            - Baseband Guard: ${{ github.event.inputs.bbg_opt }}
+            - Droidspaces: ${{ github.event.inputs.droidspaces_enable }}
+            - Better Net: ${{ github.event.inputs.better_net }}
+            - Unicode Fix: ${{ github.event.inputs.unicode_fix }}
+            - Memory/Sched Opt: ${{ github.event.inputs.mem_opt_patches }}
+            - SCX/Fengchi: ${{ github.event.inputs.enable_scx }}
           - **Multi-Manager:** true
           - **Tested on:** OnePlus 13 (crDroid etc.)
           - **Installation:** Flash AnyKernel3 zip via TWRP/KernelFlasher; install a metamodule (mountify, meta-overlayfs, etc.) for proper module mounting.
