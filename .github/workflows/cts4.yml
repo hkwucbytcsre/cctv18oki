@@ -993,11 +993,19 @@ jobs:
           # extend 模式：额外特性
           if [ "$DROID_MODE" = "extend" ]; then
             echo "Applying Droidspaces extend features..."
-            # EVDI DRM 驱动
+            # EVDI DRM 驱动 – 尝试本地，若不存在则从 cctv18 仓库下载（与配置2一致）
             if [ -f "$DS_DIR/evdi_drm.patch" ]; then
-              patch -p1 --forward < "$DS_DIR/evdi_drm.patch" || true
+              PATCH_FILE="$DS_DIR/evdi_drm.patch"
+              echo "Using local evdi_drm.patch"
             else
-              echo "⚠️ evdi_drm.patch not found, skipping EVDI"
+              echo "evdi_drm.patch not found locally, downloading from cctv18..."
+              wget -O evdi_drm.patch https://raw.githubusercontent.com/cctv18/cctv18oki/ReSukiSU/droidspaces_patch/evdi_drm.patch || true
+              PATCH_FILE="evdi_drm.patch"
+            fi
+            if [ -f "$PATCH_FILE" ]; then
+              patch -p1 --forward < "$PATCH_FILE" || true
+            else
+              echo "⚠️ Failed to obtain evdi_drm.patch, skipping EVDI"
             fi
             # 额外内核配置
             echo "CONFIG_BT_HCIVHCI=y" >> arch/arm64/configs/gki_defconfig
