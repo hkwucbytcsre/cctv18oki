@@ -29,10 +29,7 @@ on:
         required: true
         type: choice
         default: 'true'
-        options:
-          - 'false'
-          - 'true'
-          - 'default'
+        options: [ 'false', 'true', 'default' ]
       adios_enable:
         description: 'Enable ADIOS IO Scheduler (Improves IO read/write performance)'
         required: true
@@ -44,23 +41,17 @@ on:
         type: boolean
         default: false
       baseband_guard:
-        description: 'Baseband Guard: off (disable), cctv18 (source), vc-teahouse (source)'
+        description: 'Baseband Guard: off, cctv18, vc-teahouse'
         required: true
         type: choice
         default: 'cctv18'
-        options:
-          - 'off'
-          - 'cctv18'
-          - 'vc-teahouse'
+        options: [ 'off', 'cctv18', 'vc-teahouse' ]
       lto_type:
-        description: 'LTO Optimization (none = fast compile, thin = default, full = slow)'
+        description: 'LTO Optimization (none = fast, thin = default, full = slow)'
         required: true
         type: choice
         default: 'thin'
-        options:
-          - 'none'
-          - 'thin'
-          - 'full'
+        options: [ 'none', 'thin', 'full' ]
       fengchi:
         description: 'Enable Fengchi / HMBIRD Optimization'
         required: true
@@ -107,26 +98,23 @@ on:
         type: boolean
         default: true
       ntsync_enable:
-        description: 'Enable NTSync (low-latency NT sync primitives, great for gaming/Wine)'
+        description: 'Enable NTSync (low-latency NT sync primitives)'
         required: true
         type: boolean
         default: false
       droidspaces_enable:
-        description: 'Droidspaces container support: off, standard (basics), extend (extra drivers)'
+        description: 'Droidspaces container: off, standard, extend'
         required: true
         type: choice
         default: 'standard'
-        options:
-          - 'off'
-          - 'standard'
-          - 'extend'
+        options: [ 'off', 'standard', 'extend' ]
       ip_set_enable:
-        description: 'Enable IP_SET + IPv6 NAT (advanced firewall + IPv6 masquerade)'
+        description: 'Enable IP_SET + IPv6 NAT (advanced firewall)'
         required: true
         type: boolean
         default: false
       ttl_enable:
-        description: 'Enable TTL/HL Target (hide tethering from carrier detection)'
+        description: 'Enable TTL/HL Target (hide tethering)'
         required: true
         type: boolean
         default: false
@@ -136,12 +124,12 @@ on:
         type: boolean
         default: true
       abk_modules:
-        description: 'ABK external modules (format: url;stage, multiple with |, #branch)'
+        description: 'ABK external modules (url;stage, multiple with |, #branch)'
         required: false
         type: string
         default: ''
       build_time:
-        description: 'Custom build timestamp (F=UTC now, -1=off, empty=default, or custom string)'
+        description: 'Custom build timestamp (F=UTC now, -1=off, empty=default, or string)'
         required: false
         type: string
         default: 'Fri Apr 25 11:37:03 UTC 2025'
@@ -798,7 +786,10 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG"
           fi
 
-          # 其他配置（BBR, LTO, ADIOS, Re-Kernel, F2FS, WireGuard, Wakelock 等）将在后续步骤添加
+          # Baseband Guard
+          if [ "${{ github.event.inputs.baseband_guard }}" != "off" ]; then
+            echo "CONFIG_BBG=y" >> "$DEFCONFIG"
+          fi
 
       - name: Apply LZ4 1.10.0 & ZSTD 1.5.7 Patches
         if: inputs.lz4_enable
@@ -818,10 +809,8 @@ jobs:
         working-directory: kernel_workspace
         run: |
           echo "Enabling ZRAM Writeback support..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ZRAM_WRITEBACK=y
-          CONFIG_ZRAM_MEMORY_TRACKING=y
-          EOF
+          echo "CONFIG_ZRAM_WRITEBACK=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ZRAM_MEMORY_TRACKING=y" >> common/arch/arm64/configs/gki_defconfig
 
       - name: ⚙️ Apply Fengchi (HMBIRD) SCHED Patch
         if: inputs.fengchi
@@ -845,20 +834,16 @@ jobs:
               echo "✅ OGKI to GKI patch applied!"
             fi
           fi
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_SCHED_CLASS_EXT=y
-          CONFIG_OPLUS_FEATURE_HMBIRD_BOOST=y
-          CONFIG_OPLUS_FEATURE_HMBIRD_SCHED=y
-          EOF
+          echo "CONFIG_SCHED_CLASS_EXT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_OPLUS_FEATURE_HMBIRD_BOOST=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_OPLUS_FEATURE_HMBIRD_SCHED=y" >> arch/arm64/configs/gki_defconfig
 
       - name: Configure SchedUtil Optimizations
         if: inputs.schedutil_opt
         working-directory: kernel_workspace
         run: |
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
-          EOF
+          echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
           SU_C="common/kernel/sched/cpufreq_schedutil.c"
           if [ -f "$SU_C" ]; then
             sed -i 's/LATENCY_MULTIPLIER\s*=\s*1000/LATENCY_MULTIPLIER = 1000/' "$SU_C" 2>/dev/null || true
@@ -873,13 +858,11 @@ jobs:
             echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
           fi
           cd kernel_workspace/common
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ARM64_ERRATUM_2658417=y
-          CONFIG_ARCH_QCOM=y
-          CONFIG_HZ_300=y
-          CONFIG_PREEMPT=y
-          CONFIG_NO_HZ_IDLE=y
-          EOF
+          echo "CONFIG_ARM64_ERRATUM_2658417=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_ARCH_QCOM=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_HZ_300=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PREEMPT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NO_HZ_IDLE=y" >> arch/arm64/configs/gki_defconfig
           echo "✅ Oryon flags prepared."
 
       - name: Apply Unicode Bypass Fix
@@ -978,6 +961,7 @@ jobs:
 
       # ============================================================
       # Droidspaces 支持（三档选择：off / standard / extend）
+      # 修复 heredoc 语法错误，全部改用 echo 逐行追加
       # ============================================================
       - name: Add Droidspaces Support
         if: github.event.inputs.droidspaces_enable != 'off'
@@ -997,16 +981,14 @@ jobs:
             patch -p1 --forward < "$DS_DIR/0001-Return-ghost-task-if-task-is-null-and-is-requested-b.patch" || true
           fi
 
-          # 基础配置（所有 non-off 模式）
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_SYSVIPC=y
-          CONFIG_DEVTMPFS=y
-          CONFIG_PID_NS=y
-          CONFIG_POSIX_MQUEUE=y
-          CONFIG_NETFILTER_XT_TARGET_REJECT=y
-          CONFIG_NETFILTER_XT_TARGET_LOG=y
-          CONFIG_NETFILTER_XT_MATCH_RECENT=y
-          EOF
+          # 基础配置（所有 non-off 模式）– 使用 echo 逐行追加，避免 heredoc 问题
+          echo "CONFIG_SYSVIPC=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_DEVTMPFS=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PID_NS=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_POSIX_MQUEUE=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_TARGET_REJECT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_TARGET_LOG=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_MATCH_RECENT=y" >> arch/arm64/configs/gki_defconfig
 
           # extend 模式：额外特性
           if [ "$DROID_MODE" = "extend" ]; then
@@ -1018,45 +1000,44 @@ jobs:
               echo "⚠️ evdi_drm.patch not found, skipping EVDI"
             fi
             # 额外内核配置
-            cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-            CONFIG_BT_HCIVHCI=y
-            CONFIG_STATIC_USERMODEHELPER=n
-            CONFIG_DRM_LINDROID_EVDI=y
-            EOF
+            echo "CONFIG_BT_HCIVHCI=y" >> arch/arm64/configs/gki_defconfig
+            echo "CONFIG_STATIC_USERMODEHELPER=n" >> arch/arm64/configs/gki_defconfig
+            echo "CONFIG_DRM_LINDROID_EVDI=y" >> arch/arm64/configs/gki_defconfig
           fi
 
           echo "✅ Droidspaces support enabled (mode: $DROID_MODE)"
 
+      # ============================================================
+      # IP_SET + IPv6 NAT
+      # ============================================================
       - name: Add IP_SET + IPv6 NAT Support
         if: inputs.ip_set_enable
         working-directory: kernel_workspace/common
         run: |
           echo "Enabling IP_SET + IPv6 NAT..."
           echo "CONFIG_BPF_STREAM_PARSER=y" >> arch/arm64/configs/gki_defconfig
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_IP_SET=y
-          CONFIG_IP_SET_MAX=65534
-          CONFIG_IP_SET_BITMAP_IP=y
-          CONFIG_IP_SET_BITMAP_IPMAC=y
-          CONFIG_IP_SET_BITMAP_PORT=y
-          CONFIG_IP_SET_HASH_IP=y
-          CONFIG_IP_SET_HASH_IPMARK=y
-          CONFIG_IP_SET_HASH_IPPORT=y
-          CONFIG_IP_SET_HASH_IPPORTIP=y
-          CONFIG_IP_SET_HASH_IPPORTNET=y
-          CONFIG_IP_SET_HASH_IPMAC=y
-          CONFIG_IP_SET_HASH_MAC=y
-          CONFIG_IP_SET_HASH_NETPORTNET=y
-          CONFIG_IP_SET_HASH_NET=y
-          CONFIG_IP_SET_HASH_NETNET=y
-          CONFIG_IP_SET_HASH_NETPORT=y
-          CONFIG_IP_SET_HASH_NETIFACE=y
-          CONFIG_IP_SET_LIST_SET=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_SET=y
-          CONFIG_IP6_NF_NAT=y
-          CONFIG_IP6_NF_TARGET_MASQUERADE=y
-          EOF
+          echo "CONFIG_IP_SET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_MAX=65534" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_IP=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_IPMAC=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_BITMAP_PORT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IP=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPMARK=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORTIP=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPPORTNET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_IPMAC=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_MAC=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETPORTNET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETNET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETPORT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP_SET_LIST_SET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NETFILTER_XT_SET=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_NAT=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> arch/arm64/configs/gki_defconfig
 
           IPNAT_FIX="../wildkernels_patches/common/IPv6_NAT_FIX.patch"
           if [ -f "$IPNAT_FIX" ]; then
@@ -1067,33 +1048,35 @@ jobs:
           fi
           echo "✅ IP_SET + IPv6 NAT enabled"
 
+      # ============================================================
+      # TTL/HL Target
+      # ============================================================
       - name: Add TTL/HL Target Support
         if: inputs.ttl_enable
         working-directory: kernel_workspace/common
         run: |
           echo "Enabling TTL/HL Target (hide tethering from carrier)..."
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_IP_NF_TARGET_TTL=y
-          CONFIG_IP6_NF_TARGET_HL=y
-          CONFIG_IP6_NF_MATCH_HL=y
-          EOF
+          echo "CONFIG_IP_NF_TARGET_TTL=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_TARGET_HL=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_IP6_NF_MATCH_HL=y" >> arch/arm64/configs/gki_defconfig
           echo "✅ TTL/HL Target enabled"
 
+      # ============================================================
+      # F2FS Optimizations（改用 echo）
+      # ============================================================
       - name: F2FS Optimizations
         if: inputs.f2fs_opt
         working-directory: kernel_workspace
         run: |
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_F2FS_FS=y
-          CONFIG_F2FS_STAT_FS=y
-          CONFIG_F2FS_FS_XATTR=y
-          CONFIG_F2FS_FS_POSIX_ACL=y
-          CONFIG_F2FS_FS_SECURITY=y
-          CONFIG_F2FS_FS_COMPRESSION=y
-          CONFIG_F2FS_FS_LZO=y
-          CONFIG_F2FS_FS_LZ4=y
-          CONFIG_F2FS_FS_ZSTD=y
-          EOF
+          echo "CONFIG_F2FS_FS=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_STAT_FS=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_XATTR=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_POSIX_ACL=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_SECURITY=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_COMPRESSION=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_LZO=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_LZ4=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_F2FS_FS_ZSTD=y" >> common/arch/arm64/configs/gki_defconfig
 
       - name: Enable WireGuard
         if: inputs.wireguard
@@ -1105,11 +1088,9 @@ jobs:
         if: inputs.wakelock_blocker
         working-directory: kernel_workspace/common
         run: |
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_GC=y
-          CONFIG_PM_WAKELOCKS_LIMIT=100
-          EOF
+          echo "CONFIG_PM_WAKELOCKS=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_WAKELOCKS_GC=y" >> arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> arch/arm64/configs/gki_defconfig
           WAKELOCK_C="kernel/power/wakelock.c"
           if [ -f "$WAKELOCK_C" ]; then
             cat >> "$WAKELOCK_C" << 'WLEOF'
@@ -1168,6 +1149,9 @@ jobs:
           cd kernel_workspace
           echo "CONFIG_REKERNEL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
+      # ============================================================
+      # Configure Baseband Guard（双来源选择）
+      # ============================================================
       - name: Configure Baseband Guard
         if: github.event.inputs.baseband_guard != 'off'
         run: |
@@ -1180,7 +1164,6 @@ jobs:
             echo "Using Baseband Guard from cctv18..."
             curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
           fi
-          # 注入 LSM
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       # ============================================================
@@ -1198,7 +1181,6 @@ jobs:
             DATESTR="$INPUT_TIME"
             echo "Using custom time: $DATESTR"
           else
-            # 如果输入为空，使用默认（跳过设置，让内核自己生成）
             exit 0
           fi
           echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> $GITHUB_ENV
