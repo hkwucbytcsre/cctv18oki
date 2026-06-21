@@ -108,10 +108,14 @@ on:
         type: boolean
         default: false
       droidspaces_enable:
-        description: 'Enable Droidspaces (SYSVIPC + PID_NS + POSIX_MQUEUE for proot-distro)'
+        description: 'Droidspaces container support: off, standard (basics), extend (extra drivers)'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        default: 'standard'
+        options:
+          - 'off'
+          - 'standard'
+          - 'extend'
       ip_set_enable:
         description: 'Enable IP_SET + IPv6 NAT (advanced firewall + IPv6 masquerade)'
         required: true
@@ -127,13 +131,11 @@ on:
         required: true
         type: boolean
         default: true
-      # 新增 ABK 外部模块
       abk_modules:
         description: 'ABK external modules (format: url;stage, multiple with |, #branch)'
         required: false
         type: string
         default: ''
-      # 新增自定义构建时间
       build_time:
         description: 'Custom build timestamp (F=UTC now, -1=off, empty=default, or custom string)'
         required: false
@@ -754,7 +756,7 @@ jobs:
           done < "$MANIFEST"
 
       # ============================================================
-      # 内核配置（保持配置1原始）
+      # 内核配置
       # ============================================================
       - name: ⚙️ Configure Kernel Options
         run: |
@@ -791,6 +793,8 @@ jobs:
             echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> "$DEFCONFIG"
             echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$DEFCONFIG"
           fi
+
+          # 其他配置（BBR, LTO, ADIOS, Re-Kernel, F2FS, WireGuard, Wakelock 等）将在后续步骤添加
 
       - name: Apply LZ4 1.10.0 & ZSTD 1.5.7 Patches
         if: inputs.lz4_enable
@@ -928,6 +932,9 @@ jobs:
 
           echo "✅ Optimization patches applied"
 
+      # ============================================================
+      # NTSync 独立步骤（不受 Droidspaces 影响）
+      # ============================================================
       - name: Apply NTSync Patch
         if: inputs.ntsync_enable
         working-directory: kernel_workspace/common
@@ -965,23 +972,28 @@ jobs:
           echo "CONFIG_NTSYNC=y" >> arch/arm64/configs/gki_defconfig
           echo "✅ NTSync enabled"
 
+      # ============================================================
+      # Droidspaces 支持（三档选择：off / standard / extend）
+      # ============================================================
       - name: Add Droidspaces Support
-        if: inputs.droidspaces_enable
+        if: github.event.inputs.droidspaces_enable != 'off'
         working-directory: kernel_workspace/common
         run: |
-          echo "Enabling Droidspaces (portable Linux containers)..."
+          DROID_MODE="${{ github.event.inputs.droidspaces_enable }}"
+          echo "Enabling Droidspaces (mode: $DROID_MODE)..."
           DS_DIR="../wildkernels_patches/common/droidspaces"
 
+          # 基础补丁（standard 和 extend 都需要）
           if [ -f "$DS_DIR/fix_sysvipc_kabi_6_7_8.patch" ]; then
             patch -p1 --forward < "$DS_DIR/fix_sysvipc_kabi_6_7_8.patch" || true
           else
             echo "⚠️ fix_sysvipc_kabi_6_7_8.patch not found, skipping KABI fix"
           fi
-
           if [ -f "$DS_DIR/0001-Return-ghost-task-if-task-is-null-and-is-requested-b.patch" ]; then
             patch -p1 --forward < "$DS_DIR/0001-Return-ghost-task-if-task-is-null-and-is-requested-b.patch" || true
           fi
 
+          # 基础配置（所有 non-off 模式）
           cat >> arch/arm64/configs/gki_defconfig << 'EOF'
           CONFIG_SYSVIPC=y
           CONFIG_DEVTMPFS=y
@@ -991,7 +1003,25 @@ jobs:
           CONFIG_NETFILTER_XT_TARGET_LOG=y
           CONFIG_NETFILTER_XT_MATCH_RECENT=y
           EOF
-          echo "✅ Droidspaces support enabled"
+
+          # extend 模式：额外特性
+          if [ "$DROID_MODE" = "extend" ]; then
+            echo "Applying Droidspaces extend features..."
+            # EVDI DRM 驱动
+            if [ -f "$DS_DIR/evdi_drm.patch" ]; then
+              patch -p1 --forward < "$DS_DIR/evdi_drm.patch" || true
+            else
+              echo "⚠️ evdi_drm.patch not found, skipping EVDI"
+            fi
+            # 额外内核配置
+            cat >> arch/arm64/configs/gki_defconfig << 'EOF'
+            CONFIG_BT_HCIVHCI=y
+            CONFIG_STATIC_USERMODEHELPER=n
+            CONFIG_DRM_LINDROID_EVDI=y
+            EOF
+          fi
+
+          echo "✅ Droidspaces support enabled (mode: $DROID_MODE)"
 
       - name: Add IP_SET + IPv6 NAT Support
         if: inputs.ip_set_enable
@@ -1144,7 +1174,7 @@ jobs:
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       # ============================================================
-      # 新增：自定义构建时间（根据 build_time 输入）
+      # 自定义构建时间
       # ============================================================
       - name: Customize build timestamp
         if: github.event.inputs.build_time != '-1'
@@ -1161,21 +1191,18 @@ jobs:
             # 如果输入为空，使用默认（跳过设置，让内核自己生成）
             exit 0
           fi
-          # 设置环境变量，影响编译过程
           echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> $GITHUB_ENV
           echo "KBUILD_BUILD_VERSION=1" >> $GITHUB_ENV
-          # 修改 mkcompile_h 文件，直接注入时间戳
           for f in ./scripts/mkcompile_h; do
             if [ -f "$f" ]; then
               echo "Patching $f with BUILD_TIME=$DATESTR"
-              # 替换 UTS_VERSION 定义
               perl -pi -e "s{UTS_VERSION=\"\\\$\\(.*?\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
             fi
           done
           echo "✅ Kernel build timestamp set to $DATESTR"
 
       # ============================================================
-      # ABK 外部模块：执行 before_build 阶段（在构建前）
+      # ABK 外部模块：执行 before_build 阶段
       # ============================================================
       - name: Execute ABK modules (before_build)
         if: github.event.inputs.abk_modules != ''
@@ -1230,7 +1257,7 @@ jobs:
           done < "$MANIFEST"
 
       # ============================================================
-      # 构建（保持原始）
+      # 构建
       # ============================================================
       - name: 📦 Add build name
         run: |
@@ -1429,6 +1456,8 @@ jobs:
           - **Unicode Fix:** ${{ github.event.inputs.unicode_fix }}
           - **WireGuard:** ${{ github.event.inputs.wireguard }}
           - **Wakelock Blocker:** ${{ github.event.inputs.wakelock_blocker }}
+          - **ABK Modules:** ${{ github.event.inputs.abk_modules }}
+          - **Build Timestamp:** ${{ github.event.inputs.build_time }}
           - **Tested devices and systems:**
               OnePlus Pad 3/OnePlus Pad 2 Pro [crDroidAndroid-16.0-20260531-erhai-v12.10]
               OnePlus 13 [crDroidAndroid-16.0-20260531-dodge-v12.10]
