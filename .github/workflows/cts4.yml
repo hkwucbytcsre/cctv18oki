@@ -44,10 +44,14 @@ on:
         type: boolean
         default: false
       baseband_guard:
-        description: 'Enable Baseband Guard (Anti-brick modem protection)'
+        description: 'Baseband Guard: off (disable), cctv18 (source), vc-teahouse (source)'
         required: true
-        type: boolean
-        default: true
+        type: choice
+        default: 'cctv18'
+        options:
+          - 'off'
+          - 'cctv18'
+          - 'vc-teahouse'
       lto_type:
         description: 'LTO Optimization (none = fast compile, thin = default, full = slow)'
         required: true
@@ -1165,12 +1169,18 @@ jobs:
           echo "CONFIG_REKERNEL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: Configure Baseband Guard
-        if: inputs.baseband_guard
+        if: github.event.inputs.baseband_guard != 'off'
         run: |
           cd kernel_workspace
-          echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
           cd ./common
-          curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          if [ "${{ github.event.inputs.baseband_guard }}" == "vc-teahouse" ]; then
+            echo "Using Baseband Guard from vc-teahouse..."
+            curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          else
+            echo "Using Baseband Guard from cctv18..."
+            curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+          fi
+          # 注入 LSM
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       # ============================================================
