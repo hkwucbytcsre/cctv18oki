@@ -1,8 +1,4 @@
-name: 6.6.66 欧加真OKI内核快速构建（含配置1优化补全）
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}
-  cancel-in-progress: true
+name: 6.6.139 欧加真OKI内核快速构建
 
 env:
   TZ: Asia/Shanghai
