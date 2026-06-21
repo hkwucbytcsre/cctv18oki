@@ -120,7 +120,7 @@ on:
         default: 'cctv18'
         options:
           - 'cctv18'
-          - 'vc-teahous'
+          - 'vc-teahouse'
       abk_modules:
         description: 'ABK外部模块（格式：url;stage，多个用|分隔，支持#branch）'
         required: false
@@ -714,6 +714,110 @@ jobs:
       
           echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
 
+      # ==================== 🚀 新增：应用性能增强包（统一开关） ====================
+      - name: 🚀 应用性能增强包（统一开关）
+        if: inputs.performance_pack
+        run: |
+          cd kernel_workspace
+
+          # ------ TCP 公平队列调度器（FQ/FQ_CODEL） ------
+          echo "启用 FQ 队列调度（配合 BBR 降低延迟）..."
+          echo "CONFIG_NET_SCH_FQ=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_NET_SCH_FQ_CODEL=y" >> common/arch/arm64/configs/gki_defconfig
+
+          # ------ Wakelock Blocker（阻止特定内核唤醒锁） ------
+          echo "启用 Wakelock Blocker..."
+          echo "CONFIG_PM_WAKELOCKS=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_WAKELOCKS_GC=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> common/arch/arm64/configs/gki_defconfig
+          WAKELOCK_C="common/kernel/power/wakelock.c"
+          if [ -f "$WAKELOCK_C" ]; then
+            cat >> "$WAKELOCK_C" << 'WLEOF'
+          /* palaziks: wakelock blocker list */
+          static const char * const blocked_wakelocks[] = {
+              "WLAN_pm_wlock",
+              "IPA_WS",
+              "qcom_rx_wakelock",
+              "event0",
+          };
+          WLEOF
+          fi
+
+          # ------ SchedUtil 调优（CPU 调频器优化） ------
+          echo "启用 SchedUtil 优化..."
+          echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
+          SU_C="common/kernel/sched/cpufreq_schedutil.c"
+          if [ -f "$SU_C" ]; then
+            sed -i 's/LATENCY_MULTIPLIER\s*=\s*1000/LATENCY_MULTIPLIER = 1000/' "$SU_C" 2>/dev/null || true
+          fi
+
+          # ------ Oryon CPU 优化（SM8750 架构调优） ------
+          echo "启用 Oryon CPU 优化..."
+          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_ARM64_ERRATUM_2658417=y
+          CONFIG_ARCH_QCOM=y
+          CONFIG_HZ_300=y
+          CONFIG_PREEMPT=y
+          CONFIG_NO_HZ_IDLE=y
+          EOF
+          # 通过环境变量传递额外编译标志（make 阶段会引用）
+          echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
+
+          # ------ F2FS 优化（闪存性能增强） ------
+          echo "启用 F2FS 优化..."
+          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_F2FS_FS=y
+          CONFIG_F2FS_STAT_FS=y
+          CONFIG_F2FS_FS_XATTR=y
+          CONFIG_F2FS_FS_POSIX_ACL=y
+          CONFIG_F2FS_FS_SECURITY=y
+          CONFIG_F2FS_FS_COMPRESSION=y
+          CONFIG_F2FS_FS_LZO=y
+          CONFIG_F2FS_FS_LZ4=y
+          CONFIG_F2FS_FS_ZSTD=y
+          EOF
+
+          # ------ 内存 & 调度优化补丁（来自 WildKernels） ------
+          echo "应用 WildKernels 内存/调度优化补丁..."
+          git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git wildkernels_patches
+          cd common
+          PATCHES_DIR="../wildkernels_patches/common"
+          # 批量应用补丁（失败则跳过，避免中断构建）
+          for patch in \
+            optimized_mem_operations.patch \
+            file_struct_8bytes_align.patch \
+            reduce_cache_pressure.patch \
+            mem_opt_prefetch.patch \
+            optimise_memcmp.patch \
+            minimise_wakeup_time.patch \
+            int_sqrt.patch \
+            force_tcp_nodelay.patch \
+            reduce_gc_thread_sleep_time.patch \
+            add_timeout_wakelocks_globally.patch \
+            f2fs_reduce_congestion.patch \
+            reduce_freeze_timeout.patch \
+            clear_page_16bytes_align.patch \
+            add_limitation_scaling_min_freq.patch \
+            re_write_limitation_scaling_min_freq.patch \
+            adjust_cpu_scan_order.patch \
+            avoid_extra_s2idle_wake_attempts.patch \
+            disable_cache_hot_buddy.patch \
+            f2fs_enlarge_min_fsync_blocks.patch \
+            increase_ext4_default_commit_age.patch \
+            increase_sk_mem_packets.patch \
+            reduce_pci_pme_wakeups.patch \
+            silence_irq_cpu_logspam.patch \
+            silence_system_logspam.patch \
+            use_unlikely_wrap_cpufreq.patch; do
+            if [ -f "$PATCHES_DIR/$patch" ]; then
+              patch -p1 --forward < "$PATCHES_DIR/$patch" || echo "⚠️ $patch 跳过（可能已应用）"
+            fi
+          done
+          cd ..
+
+          echo "✅ 性能增强包应用完成"
+
       # ==================== 解析并克隆 ABK 模块（生成清单） ====================
       - name: 解析并克隆 ABK 模块
         if: github.event.inputs.abk_modules != ''
@@ -1107,110 +1211,6 @@ jobs:
             else
               echo "Unicode 绕过补丁应用成功"
             fi
-
-      # ==================== 🚀 新增：应用性能增强包（统一开关） ====================
-      - name: 🚀 应用性能增强包（统一开关）
-        if: inputs.performance_pack
-        run: |
-          cd kernel_workspace
-
-          # ------ TCP 公平队列调度器（FQ/FQ_CODEL） ------
-          echo "启用 FQ 队列调度（配合 BBR 降低延迟）..."
-          echo "CONFIG_NET_SCH_FQ=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_NET_SCH_FQ_CODEL=y" >> common/arch/arm64/configs/gki_defconfig
-
-          # ------ Wakelock Blocker（阻止特定内核唤醒锁） ------
-          echo "启用 Wakelock Blocker..."
-          echo "CONFIG_PM_WAKELOCKS=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_PM_WAKELOCKS_GC=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_PM_WAKELOCKS_LIMIT=100" >> common/arch/arm64/configs/gki_defconfig
-          WAKELOCK_C="common/kernel/power/wakelock.c"
-          if [ -f "$WAKELOCK_C" ]; then
-            cat >> "$WAKELOCK_C" << 'WLEOF'
-          /* palaziks: wakelock blocker list */
-          static const char * const blocked_wakelocks[] = {
-              "WLAN_pm_wlock",
-              "IPA_WS",
-              "qcom_rx_wakelock",
-              "event0",
-          };
-          WLEOF
-          fi
-
-          # ------ SchedUtil 调优（CPU 调频器优化） ------
-          echo "启用 SchedUtil 优化..."
-          echo "CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y" >> common/arch/arm64/configs/gki_defconfig
-          SU_C="common/kernel/sched/cpufreq_schedutil.c"
-          if [ -f "$SU_C" ]; then
-            sed -i 's/LATENCY_MULTIPLIER\s*=\s*1000/LATENCY_MULTIPLIER = 1000/' "$SU_C" 2>/dev/null || true
-          fi
-
-          # ------ Oryon CPU 优化（SM8750 架构调优） ------
-          echo "启用 Oryon CPU 优化..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ARM64_ERRATUM_2658417=y
-          CONFIG_ARCH_QCOM=y
-          CONFIG_HZ_300=y
-          CONFIG_PREEMPT=y
-          CONFIG_NO_HZ_IDLE=y
-          EOF
-          # 通过环境变量传递额外编译标志（make 阶段会引用）
-          echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
-
-          # ------ F2FS 优化（闪存性能增强） ------
-          echo "启用 F2FS 优化..."
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_F2FS_FS=y
-          CONFIG_F2FS_STAT_FS=y
-          CONFIG_F2FS_FS_XATTR=y
-          CONFIG_F2FS_FS_POSIX_ACL=y
-          CONFIG_F2FS_FS_SECURITY=y
-          CONFIG_F2FS_FS_COMPRESSION=y
-          CONFIG_F2FS_FS_LZO=y
-          CONFIG_F2FS_FS_LZ4=y
-          CONFIG_F2FS_FS_ZSTD=y
-          EOF
-
-          # ------ 内存 & 调度优化补丁（来自 WildKernels） ------
-          echo "应用 WildKernels 内存/调度优化补丁..."
-          git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git wildkernels_patches
-          cd common
-          PATCHES_DIR="../wildkernels_patches/common"
-          # 批量应用补丁（失败则跳过，避免中断构建）
-          for patch in \
-            optimized_mem_operations.patch \
-            file_struct_8bytes_align.patch \
-            reduce_cache_pressure.patch \
-            mem_opt_prefetch.patch \
-            optimise_memcmp.patch \
-            minimise_wakeup_time.patch \
-            int_sqrt.patch \
-            force_tcp_nodelay.patch \
-            reduce_gc_thread_sleep_time.patch \
-            add_timeout_wakelocks_globally.patch \
-            f2fs_reduce_congestion.patch \
-            reduce_freeze_timeout.patch \
-            clear_page_16bytes_align.patch \
-            add_limitation_scaling_min_freq.patch \
-            re_write_limitation_scaling_min_freq.patch \
-            adjust_cpu_scan_order.patch \
-            avoid_extra_s2idle_wake_attempts.patch \
-            disable_cache_hot_buddy.patch \
-            f2fs_enlarge_min_fsync_blocks.patch \
-            increase_ext4_default_commit_age.patch \
-            increase_sk_mem_packets.patch \
-            reduce_pci_pme_wakeups.patch \
-            silence_irq_cpu_logspam.patch \
-            silence_system_logspam.patch \
-            use_unlikely_wrap_cpufreq.patch; do
-            if [ -f "$PATCHES_DIR/$patch" ]; then
-              patch -p1 --forward < "$PATCHES_DIR/$patch" || echo "⚠️ $patch 跳过（可能已应用）"
-            fi
-          done
-          cd ..
-
-          echo "✅ 性能增强包应用完成"
 
       - name: 添加制作名称
         run: |
