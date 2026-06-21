@@ -128,7 +128,7 @@ on:
         required: false
         type: string
         default: ''
-    version_tag:
+      version_tag:
         description: 'Custom version tag for resukiSU (e.g. mybuild)'
         required: false
         type: string
