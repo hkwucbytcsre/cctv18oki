@@ -128,6 +128,11 @@ on:
         required: false
         type: string
         default: ''
+    version_tag:
+        description: 'Custom version tag for resukiSU (e.g. mybuild)'
+        required: false
+        type: string
+        default: 'palaziks-miyako-xingguang'
       build_time:
         description: 'Custom build timestamp (F=UTC now, -1=off, empty=default, or string)'
         required: false
@@ -357,14 +362,24 @@ jobs:
 
           KSU_COMMIT_HASH=$(git rev-parse --short=8 HEAD)
 
-          echo "💉 Injecting custom version: v${KSU_API_VERSION}-${KSU_COMMIT_HASH}@palaziks"
+          # 获取用户自定义版本标签（默认 palaziks）
+          VERSION_TAG="${{ github.event.inputs.version_tag }}"
+          if [ -z "$VERSION_TAG" ]; then
+            VERSION_TAG="palaziks"
+          fi
 
+          STATIC_VERSION="v${KSU_API_VERSION}-${KSU_COMMIT_HASH}@${VERSION_TAG}"
+          echo "💉 Custom KSU version: ${STATIC_VERSION}"
+
+          # 注入到 Kbuild（原有方式）
           sed -i '/-DKSU_VERSION_FULL=/d' "$KBUILD_FILE"
+          echo "ccflags-y += -DKSU_VERSION_FULL=\\\"${STATIC_VERSION}\\\"" >> "$KBUILD_FILE"
 
-          echo "ccflags-y += -DKSU_VERSION_FULL=\\\"v${KSU_API_VERSION}-${KSU_COMMIT_HASH}@palaziks\\\"" >> "$KBUILD_FILE"
+          # 同时写入 defconfig（配置2方式），使管理器能直接读取
+          cd ../..  # 回到 kernel_workspace
+          echo "CONFIG_KSU_FULL_NAME_FORMAT=\"${STATIC_VERSION}\"" >> common/arch/arm64/configs/gki_defconfig
 
-          echo "✅ ReSukiSU version configured"
-          echo "Version: v${KSU_API_VERSION}-${KSU_COMMIT_HASH}@palaziks"
+          echo "✅ ReSukiSU version configured: ${STATIC_VERSION}"
 
       - name: 🔧 Fix SUSFS selinux symbol linkage (builtin ReSukiSU)
         if: github.event.inputs.SUSFS == 'true'
