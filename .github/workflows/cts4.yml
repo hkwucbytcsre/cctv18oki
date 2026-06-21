@@ -1,12 +1,12 @@
-name: 6.6.139 欧加真OKI内核快速构建
+name: 6.6.66 欧加真OKI内核快速构建
 
 env:
   TZ: Asia/Shanghai
   ANDROID_VERSION: 'android15'
   KERNEL_VERSION: '6.6'
-  SUB_VERSION: '139'
+  SUB_VERSION: '66'
   KERNEL_NAME: 'android15-8-g29d86c5fc9dd-abogki428889875-4k'
-  CCACHE_KEY: ccache-neov4-6.6.139
+  CCACHE_KEY: ccache-ecsv3-6.6.66
 
 on:
   workflow_dispatch:
@@ -151,62 +151,6 @@ on:
         required: false
         type: string
         default: ''
-      # --------------------- 新增：配置1的优化选项 ---------------------
-      lto_type:
-        description: 'LTO优化 (none=快速编译, thin=默认, full=慢但优化更强)'
-        required: true
-        type: choice
-        default: 'none'
-        options:
-          - 'none'
-          - 'thin'
-          - 'full'
-      mem_opt_patches:
-        description: '启用内存/调度优化补丁 (来自WildKernels)'
-        required: true
-        type: boolean
-        default: false
-      schedutil_opt:
-        description: '启用SchedUtil优化 (改善CPU调频响应)'
-        required: true
-        type: boolean
-        default: false
-      cpu_opt:
-        description: 'CPU优化 (Oryon SM8750专属调校)'
-        required: true
-        type: boolean
-        default: false
-      f2fs_opt:
-        description: '启用F2FS优化 (提升闪存性能)'
-        required: true
-        type: boolean
-        default: false
-      wireguard:
-        description: '启用WireGuard VPN内核支持'
-        required: true
-        type: boolean
-        default: false
-      wakelock_blocker:
-        description: '启用Wakelock Blocker (改善待机耗电)'
-        required: true
-        type: boolean
-        default: false
-      ttl_enable:
-        description: '启用TTL/HL Target (隐藏热点流量)'
-        required: true
-        type: boolean
-        default: false
-      zram_writeback:
-        description: '启用ZRAM Writeback (优化内存回收)'
-        required: true
-        type: boolean
-        default: false
-      # --------------------- 新增：可选控制是否创建Release ---------------------
-      github_release:
-        description: '创建GitHub Release'
-        required: true
-        type: boolean
-        default: true
 
 jobs:
   build:
@@ -244,7 +188,7 @@ jobs:
           echo "正在克隆源码仓库..."
           KERNEL_ZIP_URL="${{ github.event.inputs.kernel_source_url }}"
           if [ -z "$KERNEL_ZIP_URL" ]; then
-            KERNEL_ZIP_URL="https://github.com/palazik/android_kernel_common_oneplus_sm8750/archive/refs/heads/6.6.139_oneplus13_coloros16.zip"
+            KERNEL_ZIP_URL="https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_15.0.2_oneplus_13_6.6.66.zip"
           fi
           aria2c -s16 -x16 -k1M "$KERNEL_ZIP_URL" -o common.zip && 
           unzip -q common.zip && 
@@ -285,8 +229,6 @@ jobs:
             CCACHE_REAL_KEY=${{ env.CCACHE_KEY }}-none
           fi
           echo "CCACHE_REAL_KEY=$CCACHE_REAL_KEY" >> $GITHUB_ENV
-          echo "LDCACHE_DIR=/dev/shm/ldcache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
-          mkdir -p /dev/shm/ldcache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}
 
       - name: 载入当前版本内核的 ccache缓存
         uses: actions/cache@v5
@@ -358,16 +300,6 @@ jobs:
             ccache -sv
           fi
 
-      - name: 恢复 LTO 缓存 (thin)
-        if: inputs.lto_type == 'thin'
-        uses: actions/cache/restore@v5
-        id: lto-restore
-        with:
-          path: ${{ env.LDCACHE_DIR }}
-          key: lto-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
-          restore-keys: |
-            lto-cache-${{ runner.os }}-${{ github.ref_name }}-
-
       - name: 添加KernelSU
         id: ksu_version
         run: |
@@ -415,7 +347,10 @@ jobs:
             echo "已选择无内置KernelSU模式，跳过KernelSU配置..."
           fi
 
-      - name: 应用 KernelSU & SUSFS 补丁
+      # --------------------------------------------------------------
+      # 应用 KernelSU & SUSFS 补丁（增强：加入配置1的精细修补）
+      # --------------------------------------------------------------
+      - name: 应用 KernelSU & SUSFS 补丁（含 task_mmu 手动注入及 backup_sepolicy）
         if: inputs.susfs_enable
         run: |
           cd kernel_workspace
@@ -427,7 +362,48 @@ jobs:
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
             cd ./common
-            patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
+
+            # ---- 配置1风格：剥离 task_mmu.c 部分，手动注入 ----
+            echo "🔧 预处理 patch：移除 task_mmu.c 部分，手动注入 SUSFS 检查..."
+            # 1. 从 patch 中删除 task_mmu.c 相关的 diff
+            sed -i '/diff --git a\/fs\/proc\/task_mmu.c b\/fs\/proc\/task_mmu.c/,/diff --git/ { /diff --git b/!d }' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
+            sed -i '/diff --git a\/fs\/proc\/task_mmu.c b\/fs\/proc\/task_mmu.c/d' 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
+
+            # 2. 手动在 task_mmu.c 中插入头文件和钩子
+            # 2a. 注入 #include <linux/susfs.h>
+            sed -i '/#define SENTINEL_VMA_GATE/a #include <linux/susfs.h>' fs/proc/task_mmu.c
+            # 2b. 在 smap_gather_stats 调用前插入 SUSFS 检查
+            awk '
+            /smap_gather_stats\(vma, &mss, last_vma_end\);/ {
+                print "#ifdef CONFIG_KSU_SUSFS_SUS_MAP"
+                print "\t\t\tif (vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file))) {"
+                print "\t\t\t\tcontinue;"
+                print "\t\t\t}"
+                print "#endif"
+            }
+            { print }
+            ' fs/proc/task_mmu.c > fs/proc/task_mmu.c.tmp && mv fs/proc/task_mmu.c.tmp fs/proc/task_mmu.c
+
+            # 应用修改后的 patch
+            echo "📦 应用 SUSFS 补丁（不含 task_mmu）..."
+            patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch
+
+            # 3. 添加 backup_sepolicy 支持（仅 ReSukiSU / SukiSU）
+            if [[ "${{ github.event.inputs.ksu_type }}" == "resukisu" || "${{ github.event.inputs.ksu_type }}" == "sukisu" ]]; then
+              echo "🔧 注入 backup_sepolicy 到 KernelSU/selinux/rules.c ..."
+              RULES="../KernelSU/kernel/selinux/rules.c"
+              if [ -f "$RULES" ]; then
+                # 定义全局变量
+                sed -i '/^#define ALL NULL/a\\n#ifdef CONFIG_KSU_SUSFS\nstruct selinux_policy *backup_sepolicy;\n#endif' "$RULES"
+                # 赋值
+                sed -i '/rcu_assign_pointer(selinux_state.policy, pol);/a#ifdef CONFIG_KSU_SUSFS\n    backup_sepolicy = pol;\n#endif' "$RULES"
+                echo "✅ backup_sepolicy 已注入"
+              else
+                echo "⚠️ 未找到 $RULES，跳过 backup_sepolicy 注入"
+              fi
+            fi
+
+            # 应用额外 hide_stuff 补丁
             patch -p1 -N -F 3 < 69_hide_stuff.patch || true
             cd ..
           else
@@ -440,16 +416,38 @@ jobs:
             patch -p1 < 10_enable_susfs_for_ksu.patch || true
           fi
 
-      # ----- 新增：克隆 WildKernels 补丁仓库 -----
+      # ---- 若 SUSFS 关闭，修复缺失的静态 key 符号（配置1风格） ----
+      - name: 修复 KSU 静态 key 符号（SUSFS=false 时）
+        if: inputs.susfs_enable != 'true'
+        working-directory: kernel_workspace
+        run: |
+          # 仅当 KSU 存在时执行（非 none 模式）
+          if [[ "${{ github.event.inputs.ksu_type }}" != "none" ]]; then
+            KSUD=$(find . -name "ksud.c" | head -1)
+            if [ -z "$KSUD" ]; then
+              echo "ksud.c 未找到，跳过"
+              exit 0
+            fi
+            echo "找到 ksud.c: $KSUD"
+            # 将 extern 声明替换为实际定义（并导出）
+            sed -i \
+              's|extern struct static_key_false ksu_input_hook_key_false;|struct static_key_false ksu_input_hook_key_false = STATIC_KEY_FALSE_INIT;\nEXPORT_SYMBOL_GPL(ksu_input_hook_key_false);|' \
+              "$KSUD"
+            sed -i \
+              's|extern struct static_key_false ksu_init_rc_hook_key_false;|struct static_key_false ksu_init_rc_hook_key_false = STATIC_KEY_FALSE_INIT;\nEXPORT_SYMBOL_GPL(ksu_init_rc_hook_key_false);|' \
+              "$KSUD"
+            echo "✅ 静态 key 符号已定义（SUSFS=false 模式）"
+          else
+            echo "无内置 KSU，跳过"
+          fi
+
+      # ==================== 新增优化：内存/调度补丁（无条件开启） ====================
       - name: 克隆 WildKernels 补丁仓库
-        if: inputs.mem_opt_patches
         run: |
           cd kernel_workspace
           git clone --depth=1 https://github.com/TheWildJames/kernel_patches.git wildkernels_patches
 
-      # ----- 新增：应用内存/调度优化补丁 -----
       - name: 应用内存/调度优化补丁 (WildKernels)
-        if: inputs.mem_opt_patches
         working-directory: kernel_workspace/common
         run: |
           echo "应用 WildKernels 内存/调度优化补丁..."
@@ -489,6 +487,86 @@ jobs:
           apply_patch "use_unlikely_wrap_cpufreq.patch"
           echo "✅ 内存/调度优化补丁应用完成"
 
+      # ==================== 新增优化：SchedUtil (无条件) ====================
+      - name: 应用 SchedUtil 优化
+        working-directory: kernel_workspace/common
+        run: |
+          SU_C="kernel/sched/cpufreq_schedutil.c"
+          if [ -f "$SU_C" ]; then
+            sed -i 's/LATENCY_MULTIPLIER\s*=\s*[0-9]*/LATENCY_MULTIPLIER = 1000/' "$SU_C"
+            echo "✅ SchedUtil LATENCY_MULTIPLIER 已设为 1000"
+          else
+            echo "⚠️ 未找到 $SU_C，跳过"
+          fi
+
+      # ==================== 新增优化：CPU 优化 (Oryon) ====================
+      - name: 应用 CPU 优化 (Oryon)
+        run: |
+          echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
+          cd kernel_workspace/common
+          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_ARM64_ERRATUM_2658417=y
+          CONFIG_ARCH_QCOM=y
+          CONFIG_HZ_300=y
+          CONFIG_PREEMPT=y
+          CONFIG_NO_HZ_IDLE=y
+          EOF
+          echo "✅ Oryon CPU 优化已应用"
+
+      # ==================== 新增优化：F2FS（无条件） ====================
+      - name: 应用 F2FS 优化
+        working-directory: kernel_workspace
+        run: |
+          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_F2FS_FS=y
+          CONFIG_F2FS_STAT_FS=y
+          CONFIG_F2FS_FS_XATTR=y
+          CONFIG_F2FS_FS_POSIX_ACL=y
+          CONFIG_F2FS_FS_SECURITY=y
+          CONFIG_F2FS_FS_COMPRESSION=y
+          CONFIG_F2FS_FS_LZO=y
+          CONFIG_F2FS_FS_LZ4=y
+          CONFIG_F2FS_FS_ZSTD=y
+          EOF
+          echo "✅ F2FS 优化已启用"
+
+      # ==================== 新增优化：TTL/HL Target（无条件） ====================
+      - name: 启用 TTL/HL Target
+        working-directory: kernel_workspace
+        run: |
+          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+          EOF
+          echo "✅ TTL/HL Target 已启用"
+
+      # ==================== 新增优化：Wakelock Blocker（无条件） ====================
+      - name: 启用 Wakelock Blocker
+        working-directory: kernel_workspace/common
+        run: |
+          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
+          CONFIG_PM_WAKELOCKS=y
+          CONFIG_PM_WAKELOCKS_GC=y
+          CONFIG_PM_WAKELOCKS_LIMIT=100
+          EOF
+          WAKELOCK_C="kernel/power/wakelock.c"
+          if [ -f "$WAKELOCK_C" ]; then
+            cat >> "$WAKELOCK_C" << 'WLEOF'
+          /* palaziks: wakelock blocker list */
+          static const char * const blocked_wakelocks[] = {
+              "WLAN_pm_wlock",
+              "IPA_WS",
+              "qcom_rx_wakelock",
+              "event0",
+          };
+          WLEOF
+            echo "✅ Wakelock Blocker 已配置"
+          else
+            echo "⚠️ 未找到 $WAKELOCK_C，跳过注入"
+          fi
+
+      # ==================== 以下为原配置2的后续步骤（未做任何删除） ====================
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
         run: |
@@ -588,109 +666,6 @@ jobs:
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/config.patch
           patch -p1 -F 3 < config.patch || true
 
-      # ----- 新增：应用 SchedUtil 优化 -----
-      - name: 应用 SchedUtil 优化
-        if: inputs.schedutil_opt
-        working-directory: kernel_workspace/common
-        run: |
-          SU_C="kernel/sched/cpufreq_schedutil.c"
-          if [ -f "$SU_C" ]; then
-            sed -i 's/LATENCY_MULTIPLIER\s*=\s*[0-9]*/LATENCY_MULTIPLIER = 1000/' "$SU_C"
-            echo "✅ SchedUtil LATENCY_MULTIPLIER 已设为 1000"
-          else
-            echo "⚠️ 未找到 $SU_C，跳过"
-          fi
-
-      # ----- 新增：CPU 优化（配置 + 编译标志）-----
-      - name: 应用 CPU 优化 (Oryon)
-        if: inputs.cpu_opt
-        run: |
-          echo "EXTRA_CFLAGS=-mcpu=oryon-1 -fno-strict-aliasing -fno-delete-null-pointer-checks" >> $GITHUB_ENV
-          cd kernel_workspace/common
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ARM64_ERRATUM_2658417=y
-          CONFIG_ARCH_QCOM=y
-          CONFIG_HZ_300=y
-          CONFIG_PREEMPT=y
-          CONFIG_NO_HZ_IDLE=y
-          EOF
-          echo "✅ Oryon CPU 优化已应用"
-
-      # ----- 新增：F2FS 优化 -----
-      - name: 应用 F2FS 优化
-        if: inputs.f2fs_opt
-        working-directory: kernel_workspace
-        run: |
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_F2FS_FS=y
-          CONFIG_F2FS_STAT_FS=y
-          CONFIG_F2FS_FS_XATTR=y
-          CONFIG_F2FS_FS_POSIX_ACL=y
-          CONFIG_F2FS_FS_SECURITY=y
-          CONFIG_F2FS_FS_COMPRESSION=y
-          CONFIG_F2FS_FS_LZO=y
-          CONFIG_F2FS_FS_LZ4=y
-          CONFIG_F2FS_FS_ZSTD=y
-          EOF
-          echo "✅ F2FS 优化已启用"
-
-      # ----- 新增：WireGuard -----
-      - name: 启用 WireGuard
-        if: inputs.wireguard
-        working-directory: kernel_workspace
-        run: |
-          echo "CONFIG_WIREGUARD=y" >> common/arch/arm64/configs/gki_defconfig
-          echo "✅ WireGuard 已启用"
-
-      # ----- 新增：Wakelock Blocker -----
-      - name: 启用 Wakelock Blocker
-        if: inputs.wakelock_blocker
-        working-directory: kernel_workspace/common
-        run: |
-          cat >> arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_PM_WAKELOCKS=y
-          CONFIG_PM_WAKELOCKS_GC=y
-          CONFIG_PM_WAKELOCKS_LIMIT=100
-          EOF
-          WAKELOCK_C="kernel/power/wakelock.c"
-          if [ -f "$WAKELOCK_C" ]; then
-            cat >> "$WAKELOCK_C" << 'WLEOF'
-          /* palaziks: wakelock blocker list */
-          static const char * const blocked_wakelocks[] = {
-              "WLAN_pm_wlock",
-              "IPA_WS",
-              "qcom_rx_wakelock",
-              "event0",
-          };
-          WLEOF
-            echo "✅ Wakelock Blocker 已配置"
-          else
-            echo "⚠️ 未找到 $WAKELOCK_C，跳过注入"
-          fi
-
-      # ----- 新增：TTL/HL Target -----
-      - name: 启用 TTL/HL Target
-        if: inputs.ttl_enable
-        working-directory: kernel_workspace
-        run: |
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_IP_NF_TARGET_TTL=y
-          CONFIG_IP6_NF_TARGET_HL=y
-          CONFIG_IP6_NF_MATCH_HL=y
-          EOF
-          echo "✅ TTL/HL Target 已启用"
-
-      # ----- 新增：ZRAM Writeback -----
-      - name: 启用 ZRAM Writeback
-        if: inputs.zram_writeback
-        working-directory: kernel_workspace
-        run: |
-          cat >> common/arch/arm64/configs/gki_defconfig << 'EOF'
-          CONFIG_ZRAM_WRITEBACK=y
-          CONFIG_ZRAM_MEMORY_TRACKING=y
-          EOF
-          echo "✅ ZRAM Writeback 已启用"
-
       - name: 添加 BBR 等一系列拥塞控制算法
         run: |
           if [[ "${{ github.event.inputs.bbr_enable }}" != "false" ]]; then
@@ -709,18 +684,6 @@ jobs:
             else
               echo "CONFIG_DEFAULT_TCP_CONG=cubic" >> ./common/arch/arm64/configs/gki_defconfig
             fi
-          fi
-
-      # ----- 新增：LTO 配置（写入 defconfig）-----
-      - name: 配置 LTO 选项
-        run: |
-          cd kernel_workspace
-          if [[ "${{ github.event.inputs.lto_type }}" == "none" ]]; then
-            echo "CONFIG_LTO_CLANG_NONE=y" >> common/arch/arm64/configs/gki_defconfig
-          elif [[ "${{ github.event.inputs.lto_type }}" == "full" ]]; then
-            echo "CONFIG_LTO_CLANG_FULL=y" >> common/arch/arm64/configs/gki_defconfig
-          else
-            echo "CONFIG_LTO_CLANG_THIN=y" >> common/arch/arm64/configs/gki_defconfig
           fi
 
       - name: 启用 Droidspaces 容器支持
@@ -1278,12 +1241,6 @@ jobs:
           fi
           echo "::endgroup::"
 
-      # ----- 新增：设置 LTO 链接参数 (thin) -----
-      - name: 设置 LTO 链接参数 (thin)
-        if: inputs.lto_type == 'thin'
-        run: |
-          echo "LTO_LDFLAGS=--thinlto-cache-dir=${{ env.LDCACHE_DIR }} --thinlto-jobs=$(($(nproc --all) / 2))" >> $GITHUB_ENV
-
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
@@ -1324,16 +1281,12 @@ jobs:
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo 'ccache clang ${{ env.EXTRA_CFLAGS }} "$@"' >> cc-wrapper
-          # 创建 LD 包装器（加入 LTO 参数）
+          # 创建 LD 包装器（无LTO参数）
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
-          if [[ "${{ inputs.lto_type }}" == "thin" ]]; then
-            echo 'ld.lld ${{ env.LTO_LDFLAGS }} "$@"' >> ld-wrapper
-          else
-            echo 'ld.lld "$@"' >> ld-wrapper
-          fi
+          echo 'ld.lld "$@"' >> ld-wrapper
           chmod +x cc-wrapper ld-wrapper
           # 测试时间劫持
           echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
@@ -1364,13 +1317,6 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ github.ref_name }}
-
-      - name: 保存 LTO 缓存 (thin)
-        if: success() && inputs.lto_type == 'thin'
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ env.LDCACHE_DIR }}
-          key: lto-cache-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}
          
       - name: 应用KPM并修补内核
         if: inputs.kpm_enable
@@ -1446,16 +1392,13 @@ jobs:
           echo "ADIOS: ${{ github.event.inputs.adios_enable }}" >> ./ak3.log
           echo "Re-Kernel: ${{ github.event.inputs.rekernel_enable }}" >> ./ak3.log
           echo "BBG: ${{ github.event.inputs.baseband_guard }}" >> ./ak3.log
-          # 新增优化项记录
-          echo "LTO: ${{ github.event.inputs.lto_type }}" >> ./ak3.log
-          echo "MemOpt: ${{ github.event.inputs.mem_opt_patches }}" >> ./ak3.log
-          echo "SchedUtil: ${{ github.event.inputs.schedutil_opt }}" >> ./ak3.log
-          echo "CPU Opt: ${{ github.event.inputs.cpu_opt }}" >> ./ak3.log
-          echo "F2FS Opt: ${{ github.event.inputs.f2fs_opt }}" >> ./ak3.log
-          echo "WireGuard: ${{ github.event.inputs.wireguard }}" >> ./ak3.log
-          echo "WakelockBlocker: ${{ github.event.inputs.wakelock_blocker }}" >> ./ak3.log
-          echo "TTL: ${{ github.event.inputs.ttl_enable }}" >> ./ak3.log
-          echo "ZRAM Writeback: ${{ github.event.inputs.zram_writeback }}" >> ./ak3.log
+          # 新增优化项记录（硬编码开启）
+          echo "MemOpt: enabled" >> ./ak3.log
+          echo "SchedUtil: enabled" >> ./ak3.log
+          echo "CPU Opt (Oryon): enabled" >> ./ak3.log
+          echo "F2FS Opt: enabled" >> ./ak3.log
+          echo "TTL: enabled" >> ./ak3.log
+          echo "WakelockBlocker: enabled" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
       - name: 上传 Ccache 调试日志
@@ -1474,7 +1417,6 @@ jobs:
 
   release:
     needs: build
-    if: inputs.github_release == true
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1544,16 +1486,15 @@ jobs:
           - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable }}（实验性）
           - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass }}
           - ABK 外部模块：${{ github.event.inputs.abk_modules }}
-          # ---- 新增优化项 ----
-          - LTO优化类型：${{ github.event.inputs.lto_type }}
-          - 内存/调度优化补丁：${{ github.event.inputs.mem_opt_patches }}
-          - SchedUtil优化：${{ github.event.inputs.schedutil_opt }}
-          - CPU优化 (Oryon)：${{ github.event.inputs.cpu_opt }}
-          - F2FS优化：${{ github.event.inputs.f2fs_opt }}
-          - WireGuard支持：${{ github.event.inputs.wireguard }}
-          - Wakelock Blocker：${{ github.event.inputs.wakelock_blocker }}
-          - TTL/HL Target：${{ github.event.inputs.ttl_enable }}
-          - ZRAM Writeback：${{ github.event.inputs.zram_writeback }}
+          # ---- 新增优化项（均默认开启） ----
+          - 内存/调度优化补丁 (WildKernels)：已启用
+          - SchedUtil 优化：已启用
+          - CPU 优化 (Oryon SM8750)：已启用
+          - F2FS 优化：已启用
+          - TTL/HL Target：已启用
+          - Wakelock Blocker：已启用
+          - SUSFS 精细修补（task_mmu 手动注入 + backup_sepolicy）：已启用（若 susfs 开启）
+          - 静态 key 符号修复（SUSFS 关闭时）：已启用（若 susfs 关闭）
           # ---- 管理器下载 ----
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
@@ -1562,7 +1503,8 @@ jobs:
           
           ### ⏫️ 更新内容：
           - 更新${{ env.KSU_TYPENAME }}至最新版本（${{ needs.build.outputs.ksuver }}）
-          - 添加来自配置1的多个优化选项（LTO、内存调度补丁、CPU调校等）
+          - 集成来自配置1的六项默认优化（内存调度补丁、SchedUtil、CPU调校、F2FS、TTL、Wakelock Blocker）
+          - 补充 SUSFS 缺失的 task_mmu 注入和 backup_sepolicy 符号，以及 SUSFS 关闭时的静态 key 修复
           
           ### 📋 安装方法 | Installation Guide
           1. 若你的手机已经安装了第三方Recovery（如TWRP)，可下载对应机型的AnyKernel刷机包后进入Recovery模式，通过Recovery刷入刷机包后重启设备；
