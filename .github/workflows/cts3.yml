@@ -120,7 +120,7 @@ on:
         default: 'cctv18'
         options:
           - 'cctv18'
-          - 'vc-teahous'
+          - 'vc-teahouse'
       abk_modules:
         description: 'ABK外部模块（格式：url;stage，多个用|分隔，支持#branch）'
         required: false
