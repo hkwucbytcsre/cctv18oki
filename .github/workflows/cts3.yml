@@ -705,9 +705,9 @@ jobs:
       
           echo "✅ Re-Kernel 集成完成（幂等，无重复添加）"
       
-            - name: 启用内核级基带保护
-              if: inputs.baseband_guard
-              run: |
+      - name: 启用内核级基带保护
+        if: inputs.baseband_guard
+        run: |
                 echo "正在启用启用内核级基带保护支持…"
                 cd kernel_workspace
                 echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
