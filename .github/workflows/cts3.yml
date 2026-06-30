@@ -656,26 +656,68 @@ jobs:
             exit 1
           fi
 
-      - name: 启用Re-Kernel支持
+      - name: 集成Re-Kernel补丁（幂等）
         if: inputs.rekernel_enable
         run: |
-          echo "正在启用Re-Kernel支持(用于与Freezer,NoActive等软件配合使用,提升冻结后台能力)…"
+          set -e
+          echo "正在集成Re-Kernel补丁 (幂等模式)..."
+      
           cd kernel_workspace
-          echo "CONFIG_REKERNEL=y" >> ./common/arch/arm64/configs/gki_defconfig
-
-      - name: 启用内核级基带保护
-        if: inputs.baseband_guard
-        run: |
-          echo "正在启用启用内核级基带保护支持…"
-          cd kernel_workspace
-          echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
-          cd ./common
-          if [[ "${{ github.event.inputs.bbg_source }}" == "vc-teahouse" ]]; then
-            curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+      
+          # 1. 克隆最新的 Re-Kernel 仓库（浅克隆）
+          git clone --depth=1 https://github.com/Sakion-Team/Re-Kernel.git Re-Kernel
+          RE_DIR="${PWD}/Re-Kernel/LKM-Source"
+      
+          cd common
+      
+          # 2. 处理 drivers/Kconfig：仅当不存在 source 行时才插入
+          if ! grep -q '^source "drivers/rekernel/Kconfig"' drivers/Kconfig; then
+            sed -i '/endmenu/i source "drivers/rekernel/Kconfig"' drivers/Kconfig
+            echo "  -> 已添加 source 引用到 drivers/Kconfig"
           else
-            curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+            echo "  -> drivers/Kconfig 已包含 source 引用，跳过"
           fi
-          sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+      
+          # 3. 处理 drivers/Makefile：仅当不存在 obj-$(CONFIG_REKERNEL) 行时才追加
+          if ! grep -q '^obj-$(CONFIG_REKERNEL) += rekernel/' drivers/Makefile; then
+            # 若没有注释行，先添加注释
+            if ! grep -q '#Re-Kernel Support' drivers/Makefile; then
+              echo -e '\n#Re-Kernel Support' >> drivers/Makefile
+            fi
+            echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> drivers/Makefile
+            echo "  -> 已添加 rekernel/ 编译规则到 drivers/Makefile"
+          else
+            echo "  -> drivers/Makefile 已包含编译规则，跳过"
+          fi
+      
+          # 4. 复制全部源码到 drivers/rekernel/（覆盖旧文件，确保更新）
+          mkdir -p drivers/rekernel
+          cp -r "${RE_DIR}"/* drivers/rekernel/
+          echo "  -> 已更新 drivers/rekernel/ 下的所有源码"
+      
+          # 5. 确保 CONFIG_REKERNEL 在 defconfig 中启用（幂等）
+          if ! grep -q "CONFIG_REKERNEL=y" arch/arm64/configs/gki_defconfig; then
+            echo "CONFIG_REKERNEL=y" >> arch/arm64/configs/gki_defconfig
+            echo "  -> 已添加 CONFIG_REKERNEL=y 到 defconfig"
+          else
+            echo "  -> CONFIG_REKERNEL=y 已存在，跳过"
+          fi
+      
+          echo "✅ Re-Kernel 集成完成（幂等，无重复添加）"
+      
+            - name: 启用内核级基带保护
+              if: inputs.baseband_guard
+              run: |
+                echo "正在启用启用内核级基带保护支持…"
+                cd kernel_workspace
+                echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
+                cd ./common
+                if [[ "${{ github.event.inputs.bbg_source }}" == "vc-teahouse" ]]; then
+                  curl -sSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+                else
+                  curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash
+                fi
+                sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       - name: 应用 Xingguang-DDK LSM（实验性）
         if: inputs.abk_ddk_enable
