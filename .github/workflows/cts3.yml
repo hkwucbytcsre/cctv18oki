@@ -1126,26 +1126,38 @@ jobs:
       - name: Apply CVE-2026-43499 and CVE-2026-53163 patches
         run: |
           cd kernel_workspace/common
+      
+          # 1. 下载补丁
           wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve_rtmutex.patch
       
-          # 1. 转换 CRLF → LF（防止行尾符错误）
+          # 2. 转换行尾符（防止 CRLF 干扰）
           sudo apt-get install -y dos2unix
           dos2unix cve_rtmutex.patch
       
-          # 2. 将行首的所有 Tab/空格 转换为单个空格（修复上下文行格式）
-          sed -i 's/^[[:space:]]\+/ /' cve_rtmutex.patch
+          # 3. 初始化 Git 仓库（如果尚未初始化）
+          if [ ! -d .git ]; then
+            git init
+            git config user.email "runner@github.com"
+            git config user.name "GitHub Actions"
+            git add -A
+            git commit -m "Initial commit" --allow-empty
+          fi
       
-          echo "应用补丁..."
-          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve_rtmutex.patch; then
+          # 4. 使用 git apply 应用补丁（忽略空白，生成 .rej 以便调试）
+          if git apply --ignore-whitespace --reject --verbose cve_rtmutex.patch; then
             echo "✅ CVE 补丁应用成功"
           else
-            echo "::error::补丁应用失败，请检查 .rej 文件"
+            echo "::error::git apply 失败，请检查以下 .rej 文件："
+            find . -name "*.rej" -print
             exit 1
           fi
       
+          # 5. 清理
           rm -f cve_rtmutex.patch
+      
+          # 6. 检查是否有 .rej 文件（部分冲突）
           if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::补丁部分失败，存在 .rej 文件"
+            echo "::error::补丁存在未解决的冲突（.rej 文件），请手动处理"
             exit 1
           fi
 
