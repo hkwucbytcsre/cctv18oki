@@ -1123,35 +1123,74 @@ jobs:
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
 
-      - name: Apply CVE-2026-43499 and CVE-2026-53163 patches
+      - name: Apply CVE-2026-43499 and CVE-2026-53163 patches (dynamic)
         run: |
           cd kernel_workspace/common
       
-          # 1. 下载补丁
+          # 1. 下载原始补丁
           wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve.patch
       
-          # 2. 获取 remove_waiter 函数的当前行号
-          FUNC1_LINE=$(grep -n "static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
-          if [ -z "$FUNC1_LINE" ]; then
+          # 2. 从当前源码中提取 remove_waiter 函数的实际上下文（前后各5行）
+          #    先找到函数起始行，然后提取从该行开始的20行作为上下文
+          FUNC_LINE=$(grep -n "^static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
+          if [ -z "$FUNC_LINE" ]; then
             echo "::error::未找到 remove_waiter 函数"
             exit 1
           fi
-          echo "remove_waiter 行号: $FUNC1_LINE"
+          echo "remove_waiter 起始行: $FUNC_LINE"
       
-          # 3. 获取 rt_mutex_start_proxy_lock 函数的当前行号
+          # 提取实际代码段（起始行到+20行，包含函数体前部）
+          sed -n "${FUNC_LINE},$((FUNC_LINE+20))p" kernel/locking/rtmutex.c > actual_context.txt
+      
+          # 3. 从补丁中提取预期的旧代码段（即 '-' 行和上下文行）
+          #    提取第一个 @@ 块中 '-' 开头的行（即旧代码）
+          sed -n '/^@@ -1511,18/,/^@@/p' cve.patch | grep '^ ' | sed 's/^ //' > expected_context.txt
+      
+          # 4. 用实际上下文替换补丁中的旧代码段，重新生成补丁
+          #    方法：将补丁中第一个 @@ 块内的旧代码行替换为实际提取的代码
+          #    创建一个新补丁文件
+          cat > cve_fixed.patch << 'EOF'
+          diff --git a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
+          index 21db0df0eb0007..daeeeef973e2d 100644
+          --- a/kernel/locking/rtmutex.c
+          +++ b/kernel/locking/rtmutex.c
+          EOF
+      
+          # 写入修正后的 @@ 行（使用实际行号）
+          echo "@@ -$FUNC_LINE,18 +$FUNC_LINE,22 @@" >> cve_fixed.patch
+      
+          # 写入实际上下文（从当前源码提取的代码段）
+          sed -n "${FUNC_LINE},$((FUNC_LINE+17))p" kernel/locking/rtmutex.c | while IFS= read -r line; do
+            echo " $line" >> cve_fixed.patch
+          done
+      
+          # 写入新代码段（补丁中 '+' 开头的行）
+          echo "+	struct task_struct *waiter_task = waiter->task;" >> cve_fixed.patch
+          echo "+" >> cve_fixed.patch
+          echo "+	if (!waiter_task)" >> cve_fixed.patch
+          echo "+		return;" >> cve_fixed.patch
+          echo "+" >> cve_fixed.patch
+          echo "+	scoped_guard(raw_spinlock, &waiter_task->pi_lock) {" >> cve_fixed.patch
+          echo "+		rt_mutex_dequeue(lock, waiter);" >> cve_fixed.patch
+          echo "+		waiter_task->pi_blocked_on = NULL;" >> cve_fixed.patch
+          echo "+	}" >> cve_fixed.patch
+      
+          # 继续追加补丁的其余部分（rtmutex.c 的后续修改 + rtmutex_api.c 的修改）
+          # 从原补丁中提取从第二个 @@ 开始到结尾的内容
+          sed -n '/^@@ -1560,7/,/^diff/p' cve.patch | head -n -1 >> cve_fixed.patch
+          sed -n '/^diff --git a\/kernel\/locking\/rtmutex_api.c/,$p' cve.patch >> cve_fixed.patch
+      
+          # 5. 修正 rtmutex_api.c 的行号
           FUNC2_LINE=$(grep -n "^int __sched rt_mutex_start_proxy_lock" kernel/locking/rtmutex_api.c | head -1 | cut -d: -f1)
           if [ -z "$FUNC2_LINE" ]; then
             echo "::error::未找到 rt_mutex_start_proxy_lock 函数"
             exit 1
           fi
-          echo "rt_mutex_start_proxy_lock 行号: $FUNC2_LINE"
+          echo "rt_mutex_start_proxy_lock 起始行: $FUNC2_LINE"
+          sed -i "s/^@@ -365,7 /@@ -$FUNC2_LINE,7 /" cve_fixed.patch
       
-          # 4. 修正补丁中的两个 @@ 行号
-          sed -i "s/^@@ -1511,18 /@@ -$FUNC1_LINE,18 /" cve.patch
-          sed -i "s/^@@ -365,7 /@@ -$FUNC2_LINE,7 /" cve.patch
-      
-          # 5. 应用补丁（使用 --fuzz=3 和 --ignore-whitespace 提高容错）
-          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve.patch; then
+          # 6. 应用修正后的补丁
+          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve_fixed.patch; then
             echo "✅ 补丁应用成功"
           else
             echo "::error::补丁应用失败，检查 .rej 文件"
@@ -1159,8 +1198,8 @@ jobs:
             exit 1
           fi
       
-          # 6. 清理并检查残留
-          rm -f cve.patch
+          # 7. 清理
+          rm -f cve.patch cve_fixed.patch actual_context.txt expected_context.txt
           if find . -name "*.rej" -print -quit | grep -q .; then
             echo "::error::存在 .rej 文件，补丁未完全应用"
             exit 1
