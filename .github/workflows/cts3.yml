@@ -1127,49 +1127,44 @@ jobs:
         run: |
           cd kernel_workspace/common
       
-          # 下载补丁
-          echo "下载 CVE 补丁..."
+          # 1. 下载补丁
           wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve.patch
-          if [ ! -f cve.patch ]; then
-            echo "::error::补丁文件下载失败"
+      
+          # 2. 获取 remove_waiter 函数的当前行号
+          FUNC1_LINE=$(grep -n "static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
+          if [ -z "$FUNC1_LINE" ]; then
+            echo "::error::未找到 remove_waiter 函数"
             exit 1
           fi
+          echo "remove_waiter 行号: $FUNC1_LINE"
       
-          # 尝试应用补丁
-          echo "应用补丁..."
+          # 3. 获取 rt_mutex_start_proxy_lock 函数的当前行号
+          FUNC2_LINE=$(grep -n "^int __sched rt_mutex_start_proxy_lock" kernel/locking/rtmutex_api.c | head -1 | cut -d: -f1)
+          if [ -z "$FUNC2_LINE" ]; then
+            echo "::error::未找到 rt_mutex_start_proxy_lock 函数"
+            exit 1
+          fi
+          echo "rt_mutex_start_proxy_lock 行号: $FUNC2_LINE"
+      
+          # 4. 修正补丁中的两个 @@ 行号
+          sed -i "s/^@@ -1511,18 /@@ -$FUNC1_LINE,18 /" cve.patch
+          sed -i "s/^@@ -365,7 /@@ -$FUNC2_LINE,7 /" cve.patch
+      
+          # 5. 应用补丁（使用 --fuzz=3 和 --ignore-whitespace 提高容错）
           if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve.patch; then
             echo "✅ 补丁应用成功"
           else
-            # patch 返回非零，可能是完全失败或部分失败
-            echo "::warning::patch 命令返回非零，检查是否有 .rej 文件..."
-            # 查找 .rej 文件
-            REJ_FILES=$(find . -name "*.rej")
-            if [ -n "$REJ_FILES" ]; then
-              echo "::error::补丁部分失败，存在以下 .rej 文件（请手动解决冲突）："
-              echo "$REJ_FILES"
-              # 列出每个 .rej 文件的前几行以便调试
-              for f in $REJ_FILES; do
-                echo "--- $f 内容（前10行） ---"
-                head -n 10 "$f"
-              done
-              exit 1
-            else
-              echo "::error::补丁完全失败，但未生成 .rej 文件，请检查补丁格式或目标文件状态"
-              exit 1
-            fi
-          fi
-      
-          # 清理补丁文件
-          rm -f cve.patch
-      
-          # 二次确认：如果因某些原因生成了 .rej 但 patch 返回成功，也检测一下（极少情况）
-          if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::检测到残留的 .rej 文件，补丁未完全应用"
+            echo "::error::补丁应用失败，检查 .rej 文件"
             find . -name "*.rej" -print
             exit 1
           fi
       
-          echo "✅ CVE 补丁应用完成，无冲突"
+          # 6. 清理并检查残留
+          rm -f cve.patch
+          if find . -name "*.rej" -print -quit | grep -q .; then
+            echo "::error::存在 .rej 文件，补丁未完全应用"
+            exit 1
+          fi
 
       - name: Apply UNICODE_BYPASS
         if: inputs.unicode_bypass
