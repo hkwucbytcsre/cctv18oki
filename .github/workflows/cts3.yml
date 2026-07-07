@@ -1125,86 +1125,100 @@ jobs:
 
       - name: Apply CVE-2026-43499 and CVE-2026-53163 patches
         run: |
+          cat > /tmp/apply_patches.sh << 'EOF'
+          #!/bin/bash
+          set -e
           cd kernel_workspace/common
       
-          # 清理残留
-          find . -name "*.rej" -delete
+          # ========== rtmutex.c ==========
+          FILE="kernel/locking/rtmutex.c"
       
-          # 下载补丁
-          wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve.patch
+          # 1. 插入 waiter_task 变量
+          sed -i '/struct task_struct \*owner = rt_mutex_owner(lock);/a \    struct task_struct *waiter_task = waiter->task;' "$FILE"
       
-          # ---------- 计算两个文件的偏移量 ----------
-          # 1. rtmutex.c：从补丁中提取第一个 @@ 的 - 行号作为旧行号
-          OLD1=$(grep -m1 "^@@ -[0-9]\+," cve.patch | sed 's/^@@ -\([0-9]*\),.*/\1/')
-          # 从当前源码中获取 remove_waiter 的起始行号
-          NEW1=$(grep -n "^static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
-          OFFSET1=$((NEW1 - OLD1))
-          echo "rtmutex.c 偏移: $OFFSET1 (原 $OLD1 -> 现 $NEW1)"
+          # 2. 替换锁操作块（raw_spin_lock/unlock → scoped_guard）
+          sed -i '/raw_spin_lock(&current->pi_lock);/,/raw_spin_unlock(&current->pi_lock);/c\
+              if (!waiter_task)\
+                  return;\
+          \
+              scoped_guard(raw_spinlock, &waiter_task->pi_lock) {\
+                  rt_mutex_dequeue(lock, waiter);\
+                  waiter_task->pi_blocked_on = NULL;\
+              }' "$FILE"
       
-          # 2. rtmutex_api.c：从补丁中提取该文件部分的第一个 @@ 行号
-          OLD2=$(sed -n '/^diff --git a\/kernel\/locking\/rtmutex_api.c/,/^diff/p' cve.patch | grep -m1 "^@@ -[0-9]\+," | sed 's/^@@ -\([0-9]*\),.*/\1/')
-          # 从当前源码中获取 rt_mutex_start_proxy_lock 的起始行号
-          NEW2=$(grep -n "^int __sched rt_mutex_start_proxy_lock" kernel/locking/rtmutex_api.c | head -1 | cut -d: -f1)
-          OFFSET2=$((NEW2 - OLD2))
-          echo "rtmutex_api.c 偏移: $OFFSET2 (原 $OLD2 -> 现 $NEW2)"
+          # 3. 修改 rt_mutex_adjust_prio_chain 参数
+          sed -i 's/rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,\
+                                 next_lock, NULL, current);/rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,\
+                                 next_lock, NULL, waiter_task);/' "$FILE"
       
-          # ---------- 用 awk 修正补丁中所有 @@ 行 ----------
-          awk -v off1="$OFFSET1" -v off2="$OFFSET2" '
-            # 识别当前处理的文件
-            /^--- a\/kernel\/locking\/rtmutex.c/ { file="rtmutex.c"; print; next }
-            /^--- a\/kernel\/locking\/rtmutex_api.c/ { file="rtmutex_api.c"; print; next }
-            # 匹配 @@ -数字,数字 +数字,数字 行
-            /^@@ -[0-9]+,[0-9]+ \+[0-9]+,[0-9]+/ {
-              if (file == "rtmutex.c") off = off1
-              else if (file == "rtmutex_api.c") off = off2
-              else off = 0
-              if (off != 0) {
-                # 提取所有数字
-                match($0, /^@@ -([0-9]+),([0-9]+) \+([0-9]+),([0-9]+)/, a)
-                new_old = a[1] + off   # - 后面的起始行号
-                new_new = a[3] + off   # + 后面的起始行号
-                printf("@@ -%d,%d +%d,%d\n", new_old, a[2], new_new, a[4])
-                next
-              }
-            }
-            { print }
-          ' cve.patch > cve_fixed.patch
+          # 4. 修改 rt_mutex_handle_deadlock 声明
+          sed -i 's/^static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,$/static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,\
+                                       struct rt_mutex_base *lock,/' "$FILE"
+          sed -i 's/^                                 struct rt_mutex_waiter \*w)$/                                 struct rt_mutex_waiter *w)/' "$FILE"
       
-          # ---------- 应用修正后的补丁 ----------
-          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve_fixed.patch; then
-            echo "✅ 补丁应用成功"
+          # 5. 删除注释块
+          sed -i '/^[[:space:]]*\/\*$/d' "$FILE"
+          sed -i '/^[[:space:]]* \* Yell loudly and stop the task right here\.$/d' "$FILE"
+          sed -i '/^[[:space:]]* \*\/$/d' "$FILE"
+      
+          # 6. 插入 raw_spin_unlock_irq
+          sed -i '/^[[:space:]]*if (build_ww_mutex() && w->ww_ctx)$/a \        raw_spin_unlock_irq(&lock->wait_lock);' "$FILE"
+      
+          # 7. 修改 __rt_mutex_slowlock 中的调用
+          sed -i 's/rt_mutex_handle_deadlock(ret, chwalk, waiter);/rt_mutex_handle_deadlock(ret, chwalk, lock, waiter);/' "$FILE"
+      
+          # ========== rtmutex_api.c ==========
+          sed -i 's/if (unlikely(ret))/if (unlikely(ret < 0))/' kernel/locking/rtmutex_api.c
+      
+          # ========== 验证修改是否成功 ==========
+          echo "验证修改..."
+          MISSING=0
+      
+          if ! grep -q "struct task_struct \*waiter_task = waiter->task;" "$FILE"; then
+            echo "::error::未找到 waiter_task 变量定义"
+            MISSING=1
+          fi
+      
+          if ! grep -q "if (!waiter_task)" "$FILE"; then
+            echo "::error::未找到空指针检查"
+            MISSING=1
+          fi
+      
+          if ! grep -q "scoped_guard(raw_spinlock, &waiter_task->pi_lock)" "$FILE"; then
+            echo "::error::未找到 scoped_guard 块"
+            MISSING=1
+          fi
+      
+          if ! grep -q "rt_mutex_adjust_prio_chain.*waiter_task" "$FILE"; then
+            echo "::error::未找到 rt_mutex_adjust_prio_chain 调用中的 waiter_task"
+            MISSING=1
+          fi
+      
+          if ! grep -q "raw_spin_unlock_irq(&lock->wait_lock);" "$FILE"; then
+            echo "::error::未找到 raw_spin_unlock_irq 插入"
+            MISSING=1
+          fi
+      
+          if ! grep -q "rt_mutex_handle_deadlock.*lock" "$FILE"; then
+            echo "::error::未找到 __rt_mutex_slowlock 中修改后的调用"
+            MISSING=1
+          fi
+      
+          if ! grep -q "if (unlikely(ret < 0))" kernel/locking/rtmutex_api.c; then
+            echo "::error::未找到 rtmutex_api.c 中的条件修改"
+            MISSING=1
+          fi
+      
+          if [ $MISSING -eq 1 ]; then
+            echo "::error::部分修改未成功，请检查源文件"
+            exit 1
           else
-            echo "::error::补丁应用失败，检查 .rej 文件"
-            find . -name "*.rej" -exec cat {} \;
-            exit 1
+            echo "✅ 所有修改已成功应用"
+            exit 0
           fi
+          EOF
       
-          rm -f cve.patch cve_fixed.patch
-          if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::存在 .rej 残留"
-            exit 1
-          fi
-
-      - name: Apply UNICODE_BYPASS
-        if: inputs.unicode_bypass
-        run: |
-            cd kernel_workspace/common
-            # 从 Makefile 提取内核主版本号
-            KERNEL_MAJOR=$(grep -Po '^VERSION = \K[0-9]+' Makefile)
-            if [ "$KERNEL_MAJOR" -lt 6 ]; then
-              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1-.patch"
-            else
-              PATCH_URL="https://raw.githubusercontent.com/Numbersf/Action-Build/ReSukiSU/patches/unicode_bypass_fix_6.1+.patch"
-            fi
-            echo "下载补丁: $PATCH_URL"
-            wget -O unicode_bypass.patch "$PATCH_URL"
-            patch -p1 --forward < unicode_bypass.patch || true
-            # 检查是否有拒绝文件（补丁失败）
-            if find . -name "*.rej" -print -quit | grep -q .; then
-              echo "::warning::Unicode 绕过补丁部分失败，请检查 .rej 文件"
-            else
-              echo "Unicode 绕过补丁应用成功"
-            fi
+          bash /tmp/apply_patches.sh
 
       - name: 添加制作名称
         run: |
