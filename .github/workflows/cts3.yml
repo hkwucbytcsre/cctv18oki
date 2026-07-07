@@ -1127,34 +1127,48 @@ jobs:
         run: |
           cd kernel_workspace/common
       
-          # 1. 下载补丁
+          # 清理残留
+          find . -name "*.rej" -delete
+      
+          # 下载补丁
           wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve.patch
       
-          # 2. 计算偏移量
-          FUNC_LINE=$(grep -n "^static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
+          # 计算偏移量（基于 remove_waiter 函数）
           OLD_LINE=$(grep -m1 "^@@ -[0-9]\+," cve.patch | sed 's/^@@ -\([0-9]*\),.*/\1/')
-          OFFSET=$((FUNC_LINE - OLD_LINE))
+          NEW_LINE=$(grep -n "^static void __sched remove_waiter" kernel/locking/rtmutex.c | head -1 | cut -d: -f1)
+          OFFSET=$((NEW_LINE - OLD_LINE))
           echo "偏移量: $OFFSET"
       
-          # 3. 修正补丁中所有 @@ -数字, 的行号（统一加偏移量）
-          sed -i "s/^@@ -\([0-9]*\),/@@ -$((\1 + OFFSET)),/g" cve.patch
+          # 使用 awk 将补丁中所有 @@ -数字, 的起始行号加上偏移量
+          awk -v off="$OFFSET" '
+            /^@@ -[0-9]+,[0-9]+ / {
+              # 提取旧起始行号和行数
+              match($0, /^@@ -([0-9]+),([0-9]+) /, a)
+              new_start = a[1] + off
+              # 重新构建行
+              rest = substr($0, RSTART + RLENGTH)
+              printf("@@ -%d,%d %s\n", new_start, a[2], rest)
+              next
+            }
+            { print }
+          ' cve.patch > cve_fixed.patch
       
-          # 4. 单独修正 rtmutex_api.c 的行号（偏移可能不同）
-          FUNC2_LINE=$(grep -n "^int __sched rt_mutex_start_proxy_lock" kernel/locking/rtmutex_api.c | head -1 | cut -d: -f1)
-          sed -i "s/^@@ -365,7 /@@ -$FUNC2_LINE,7 /" cve.patch
+          # 单独修正 rtmutex_api.c 的行号（偏移可能不同）
+          API_NEW=$(grep -n "^int __sched rt_mutex_start_proxy_lock" kernel/locking/rtmutex_api.c | head -1 | cut -d: -f1)
+          sed -i "s/^@@ -365,7 /@@ -$API_NEW,7 /" cve_fixed.patch
       
-          # 5. 应用补丁
-          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve.patch; then
+          # 应用修正后的补丁
+          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve_fixed.patch; then
             echo "✅ 补丁应用成功"
           else
-            echo "::error::补丁应用失败"
-            find . -name "*.rej" -print
+            echo "::error::补丁应用失败，检查 .rej 文件"
+            find . -name "*.rej" -exec cat {} \;
             exit 1
           fi
       
-          rm -f cve.patch
+          rm -f cve.patch cve_fixed.patch
           if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::存在 .rej 文件"
+            echo "::error::存在 .rej 残留"
             exit 1
           fi
 
