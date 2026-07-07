@@ -1127,39 +1127,49 @@ jobs:
         run: |
           cd kernel_workspace/common
       
-          # 1. 下载补丁
-          wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve_rtmutex.patch
-      
-          # 2. 转换行尾符（防止 CRLF 干扰）
-          sudo apt-get install -y dos2unix
-          dos2unix cve_rtmutex.patch
-      
-          # 3. 初始化 Git 仓库（如果尚未初始化）
-          if [ ! -d .git ]; then
-            git init
-            git config user.email "runner@github.com"
-            git config user.name "GitHub Actions"
-            git add -A
-            git commit -m "Initial commit" --allow-empty
+          # 下载补丁
+          echo "下载 CVE 补丁..."
+          wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve.patch
+          if [ ! -f cve.patch ]; then
+            echo "::error::补丁文件下载失败"
+            exit 1
           fi
       
-          # 4. 使用 git apply 应用补丁（忽略空白，生成 .rej 以便调试）
-          if git apply --ignore-whitespace --reject --verbose cve_rtmutex.patch; then
-            echo "✅ CVE 补丁应用成功"
+          # 尝试应用补丁
+          echo "应用补丁..."
+          if patch -p1 --fuzz=3 --ignore-whitespace --forward < cve.patch; then
+            echo "✅ 补丁应用成功"
           else
-            echo "::error::git apply 失败，请检查以下 .rej 文件："
+            # patch 返回非零，可能是完全失败或部分失败
+            echo "::warning::patch 命令返回非零，检查是否有 .rej 文件..."
+            # 查找 .rej 文件
+            REJ_FILES=$(find . -name "*.rej")
+            if [ -n "$REJ_FILES" ]; then
+              echo "::error::补丁部分失败，存在以下 .rej 文件（请手动解决冲突）："
+              echo "$REJ_FILES"
+              # 列出每个 .rej 文件的前几行以便调试
+              for f in $REJ_FILES; do
+                echo "--- $f 内容（前10行） ---"
+                head -n 10 "$f"
+              done
+              exit 1
+            else
+              echo "::error::补丁完全失败，但未生成 .rej 文件，请检查补丁格式或目标文件状态"
+              exit 1
+            fi
+          fi
+      
+          # 清理补丁文件
+          rm -f cve.patch
+      
+          # 二次确认：如果因某些原因生成了 .rej 但 patch 返回成功，也检测一下（极少情况）
+          if find . -name "*.rej" -print -quit | grep -q .; then
+            echo "::error::检测到残留的 .rej 文件，补丁未完全应用"
             find . -name "*.rej" -print
             exit 1
           fi
       
-          # 5. 清理
-          rm -f cve_rtmutex.patch
-      
-          # 6. 检查是否有 .rej 文件（部分冲突）
-          if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::补丁存在未解决的冲突（.rej 文件），请手动处理"
-            exit 1
-          fi
+          echo "✅ CVE 补丁应用完成，无冲突"
 
       - name: Apply UNICODE_BYPASS
         if: inputs.unicode_bypass
