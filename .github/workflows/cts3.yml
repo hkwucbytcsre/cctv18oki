@@ -1123,56 +1123,63 @@ jobs:
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
 
-      - name: Apply CVE-2026-43499 and CVE-2026-53163 patches
+      - name: Apply CVE patches and show full diff
         run: |
-          cat > /tmp/apply_patches.sh << 'EOF'
-          #!/bin/bash
-          set -e
           cd kernel_workspace/common
       
-          FILE="kernel/locking/rtmutex.c"
-          FILE2="kernel/locking/rtmutex_api.c"
+          # ---- 使用 Perl 一次性修改 rtmutex.c (精确到函数内) ----
+          perl -0777 -i -pe '
+            # 找到 remove_waiter 函数体
+            s{
+              (static\s+void\s+__sched\s+remove_waiter\s*\([^)]*\)\s*\{)
+              (.*?)
+              (struct\s+task_struct\s*\*\s*owner\s*=\s*rt_mutex_owner\(lock\);\s*)
+              (.*?)
+              (raw_spin_lock\(&current->pi_lock\);\s*
+               rt_mutex_dequeue\(lock,\s*waiter\);\s*
+               current->pi_blocked_on\s*=\s*NULL;\s*
+               raw_spin_unlock\(&current->pi_lock\);\s*)
+              (.*?)
+              (rt_mutex_adjust_prio_chain\(owner,\s*RT_MUTEX_MIN_CHAINWALK,\s*lock,\s*
+               next_lock,\s*NULL,\s*current\);\s*)
+              (.*?)
+              (raw_spin_unlock_irq\(&lock->wait_lock\);\s*)
+              (.*?)
+              (raw_spin_lock_irq\(&lock->wait_lock\);\s*)
+              (.*?)
+            }{
+              $1 . $2 . $3 . "    struct task_struct *waiter_task = waiter->task;\n" .
+              $4 .
+              "    if (!waiter_task)\n        return;\n\n" .
+              "    scoped_guard(raw_spinlock, &waiter_task->pi_lock) {\n" .
+              "        rt_mutex_dequeue(lock, waiter);\n" .
+              "        waiter_task->pi_blocked_on = NULL;\n" .
+              "    }\n" .
+              $6 .
+              "    rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,\n" .
+              "                   next_lock, NULL, waiter_task);\n" .
+              $8 . $9 . $10 . $11
+            }exs;
+          ' kernel/locking/rtmutex.c
       
-          # ---------- rtmutex.c 修改 ----------
-          # 1. 插入 waiter_task 变量（在 owner 声明后）
-          sed -i '/struct task_struct \*owner = rt_mutex_owner(lock);/a \    struct task_struct *waiter_task = waiter->task;' "$FILE"
-      
-          # 2. 替换锁操作块（raw_spin_lock/unlock → scoped_guard + 空指针检查）
-          sed -i '/raw_spin_lock(&current->pi_lock);/,/raw_spin_unlock(&current->pi_lock);/c\
-              if (!waiter_task)\
-                  return;\
-          \
-              scoped_guard(raw_spinlock, &waiter_task->pi_lock) {\
-                  rt_mutex_dequeue(lock, waiter);\
-                  waiter_task->pi_blocked_on = NULL;\
-              }' "$FILE"
-      
-          # 3. 修改 rt_mutex_adjust_prio_chain 调用（跨行替换，使用 perl）
-          perl -0777 -i -pe 's/rt_mutex_adjust_prio_chain\(owner, RT_MUTEX_MIN_CHAINWALK, lock,\s*next_lock, NULL, current\);/rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,\n\t\t\t\t   next_lock, NULL, waiter_task);/gs' "$FILE"
-      
-          # 4. 修改 rt_mutex_handle_deadlock 声明（增加 lock 参数）
+          # ---- 其他修改 (rt_mutex_handle_deadlock, __rt_mutex_slowlock, api.c) ----
           sed -i 's/^static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,$/static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,\
-                                       struct rt_mutex_base *lock,/' "$FILE"
-          sed -i 's/^                                 struct rt_mutex_waiter \*w)$/                                 struct rt_mutex_waiter *w)/' "$FILE"
+                                       struct rt_mutex_base *lock,/' kernel/locking/rtmutex.c
+          sed -i 's/^                                 struct rt_mutex_waiter \*w)$/                                 struct rt_mutex_waiter *w)/' kernel/locking/rtmutex.c
       
-          # 5. 精确删除特定注释块（只删包含 "Yell loudly" 的三行）
-          perl -0777 -i -pe 's{^\s*/\*\s*\n\s*\*\s*Yell loudly and stop the task right here\.\s*\n\s*\*/\s*}{}gm' "$FILE"
+          sed -i '/^[[:space:]]*if (build_ww_mutex() && w->ww_ctx)$/a \        raw_spin_unlock_irq(&lock->wait_lock);' kernel/locking/rtmutex.c
       
-          # 6. 插入 raw_spin_unlock_irq（在 if (build_ww_mutex() && w->ww_ctx) 之后）
-          # 使用 perl 匹配该行并在其后插入新行（注意原代码中 if 后有 return;）
-          perl -0777 -i -pe 's/(if \(build_ww_mutex\(\) && w->ww_ctx\)\s*return;)\s*/\1\n\traw_spin_unlock_irq(&lock->wait_lock);/g' "$FILE"
+          sed -i 's/rt_mutex_handle_deadlock(ret, chwalk, waiter);/rt_mutex_handle_deadlock(ret, chwalk, lock, waiter);/' kernel/locking/rtmutex.c
       
-          # 7. 修改 __rt_mutex_slowlock 中的调用
-          sed -i 's/rt_mutex_handle_deadlock(ret, chwalk, waiter);/rt_mutex_handle_deadlock(ret, chwalk, lock, waiter);/' "$FILE"
+          sed -i 's/if (unlikely(ret))/if (unlikely(ret < 0))/' kernel/locking/rtmutex_api.c
       
-          # ---------- rtmutex_api.c 修改 ----------
-          # 8. 修改条件判断
-          sed -i 's/if (unlikely(ret))/if (unlikely(ret < 0))/' "$FILE2"
-      
-          echo "✅ 所有修改已安全应用"
-          EOF
-      
-          bash /tmp/apply_patches.sh
+          # ---- 输出修改后的全部内容（供人工审查） ----
+          echo "========== MODIFIED rtmutex.c =========="
+          cat kernel/locking/rtmutex.c
+          echo "========== MODIFIED rtmutex_api.c =========="
+          cat kernel/locking/rtmutex_api.c
+          echo "========================================="
+          echo "请检查以上输出，确认修改是否正确。若正确，编译即可。"
 
       - name: 添加制作名称
         run: |
