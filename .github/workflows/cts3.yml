@@ -1128,18 +1128,28 @@ jobs:
           cd kernel_workspace/common
           echo "下载 CVE 补丁..."
           wget -q https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/test.patch -O cve_rtmutex.patch
+      
+          # 1. 转换 CRLF → LF（修复 "malformed patch"）
+          sudo apt-get install -y dos2unix
+          dos2unix cve_rtmutex.patch
+      
+          # 2. 清理行尾多余空格（增强兼容性）
+          sed -i 's/[[:space:]]*$//' cve_rtmutex.patch
+      
           echo "应用补丁..."
-          if patch -p1 --forward < cve_rtmutex.patch; then
+          # 使用 --ignore-whitespace 忽略空白差异，--forward 确保不反向应用
+          if patch -p1 --ignore-whitespace --forward < cve_rtmutex.patch; then
             echo "✅ CVE 补丁应用成功"
           else
-            echo "::error::补丁应用失败，请检查冲突"
+            echo "::error::补丁应用失败，请检查 .rej 文件"
             exit 1
           fi
-          # 清理临时文件
+      
           rm -f cve_rtmutex.patch
-          # 检查是否有拒绝文件（补丁部分失败）
+      
+          # 检查是否有 .rej 文件（部分失败）
           if find . -name "*.rej" -print -quit | grep -q .; then
-            echo "::error::补丁存在 .rej 文件，合并失败"
+            echo "::error::补丁部分失败，存在 .rej 文件"
             exit 1
           fi
 
