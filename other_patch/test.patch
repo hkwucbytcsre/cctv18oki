@@ -1,85 +1,54 @@
-diff --git a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
-index 21db0df0eb0007..daeeeef973e2d 100644
---- a/kernel/locking/rtmutex.c
-+++ b/kernel/locking/rtmutex.c
-@@ -1511,18 +1511,22 @@ static bool rtmutex_spin_on_owner(struct rt_mutex_base *lock,
+diff -uprN -x .DS_Store a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
+--- a/kernel/locking/rtmutex.c	2026-03-17 04:30:12
++++ b/kernel/locking/rtmutex.c	2026-07-08 19:00:27
+@@ -1520,23 +1520,28 @@ static bool rtmutex_spin_on_owner(struct rt_mutex_base *lock,
   *
   * Must be called with lock->wait_lock held and interrupts disabled. It must
   * have just failed to try_to_take_rt_mutex().
++ *
++ * When invoked from rt_mutex_start_proxy_lock() waiter::task != current !
   */
  static void __sched remove_waiter(struct rt_mutex_base *lock,
- 				  struct rt_mutex_waiter *waiter)
+ 				                             struct rt_mutex_waiter *waiter)
  {
- 	bool is_top_waiter = (waiter == rt_mutex_top_waiter(lock));
- 	struct task_struct *owner = rt_mutex_owner(lock);
-+	struct task_struct *waiter_task = waiter->task;
- 	struct rt_mutex_base *next_lock;
+ 	   bool is_top_waiter = (waiter == rt_mutex_top_waiter(lock));
+ 	   struct task_struct *owner = rt_mutex_owner(lock);
++	   struct task_struct *waiter_task = waiter->task;
+ 	   struct rt_mutex_base *next_lock;
  
- 	lockdep_assert_held(&lock->wait_lock);
+ 	   lockdep_assert_held(&lock->wait_lock);
  
--	raw_spin_lock(&current->pi_lock);
--	rt_mutex_dequeue(lock, waiter);
--	current->pi_blocked_on = NULL;
--	raw_spin_unlock(&current->pi_lock);
-+	if (!waiter_task)
-+		return;
-+
-+	scoped_guard(raw_spinlock, &waiter_task->pi_lock) {
-+		rt_mutex_dequeue(lock, waiter);
-+		waiter_task->pi_blocked_on = NULL;
-+	}
+-	   raw_spin_lock(&current->pi_lock);
+-	   rt_mutex_dequeue(lock, waiter);
+-	   current->pi_blocked_on = NULL;
+-	   raw_spin_unlock(&current->pi_lock);
++	   if (!waiter_task)
++		      return;
++	   scoped_guard(raw_spinlock, &waiter_task->pi_lock) {
++		      rt_mutex_dequeue(lock, waiter);
++		      waiter_task->pi_blocked_on = NULL;
++	   }
  
- 	/*
- 	 * Only update priority if the waiter was the highest priority
-@@ -1558,7 +1562,7 @@ static void __sched remove_waiter(struct rt_mutex_base *lock,
- 	raw_spin_unlock_irq(&lock->wait_lock);
+ 	   /*
+ 	    * Only update priority if the waiter was the highest priority
+@@ -1569,7 +1574,7 @@ static void __sched remove_waiter(struct rt_mutex_base *lock,
+ 	   raw_spin_unlock_irq(&lock->wait_lock);
  
- 	rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
--				   next_lock, NULL, current);
-+				   next_lock, NULL, waiter_task);
+ 	   rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
+-	  			             next_lock, NULL, current);
++	  			             next_lock, NULL, waiter_task);
  
- 	raw_spin_lock_irq(&lock->wait_lock);
+ 	   raw_spin_lock_irq(&lock->wait_lock);
  }
-@@ -1622,6 +1626,7 @@ static int __sched rt_mutex_slowlock_block(struct rt_mutex_base *lock,
- }
+
+diff -uprN -x .DS_Store a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
+--- a/kernel/locking/rtmutex_api.c	2026-03-17 04:30:12
++++ b/kernel/locking/rtmutex_api.c	2026-07-08 19:00:27
+@@ -349,7 +349,7 @@ int __sched rt_mutex_start_proxy_lock(struct rt_mutex_base *lock,
  
- static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
-+					     struct rt_mutex_base *lock,
- 					     struct rt_mutex_waiter *w)
- {
- 	/*
-@@ -1634,10 +1639,8 @@ static void __sched rt_mutex_handle_deadlock(int res, int detect_deadlock,
- 	if (build_ww_mutex() && w->ww_ctx)
- 		return;
- 
--	/*
--	 * Yell loudly and stop the task right here.
--	 */
--	WARN(1, "rtmutex deadlock detected\n");
-+	raw_spin_unlock_irq(&lock->wait_lock);
-+	WARN(1, "rtmutex deadlock detected\n");
- 	while (1) {
- 		set_current_state(TASK_INTERRUPTIBLE);
- 		schedule();
-@@ -1691,7 +1694,7 @@ static int __sched __rt_mutex_slowlock(struct rt_mutex_base *lock,
- 	} else {
- 		__set_current_state(TASK_RUNNING);
- 		remove_waiter(lock, waiter);
--		rt_mutex_handle_deadlock(ret, chwalk, waiter);
-+		rt_mutex_handle_deadlock(ret, chwalk, lock, waiter);
- 	}
- 
- 	/*
-diff --git a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
-index 124219aea46e4..514fce7a4e0a4 100644
---- a/kernel/locking/rtmutex_api.c
-+++ b/kernel/locking/rtmutex_api.c
-@@ -365,7 +365,7 @@ int __sched rt_mutex_start_proxy_lock(struct rt_mutex_base *lock,
- 
- 	raw_spin_lock_irq(&lock->wait_lock);
- 	ret = __rt_mutex_start_proxy_lock(lock, waiter, task, &wake_q);
--	if (unlikely(ret))
-+	if (unlikely(ret < 0))
- 		remove_waiter(lock, waiter);
- 	preempt_disable();
- 	raw_spin_unlock_irq(&lock->wait_lock);
+ 	    raw_spin_lock_irq(&lock->wait_lock);
+ 	    ret = __rt_mutex_start_proxy_lock(lock, waiter, task, &wake_q);
+-	    if (unlikely(ret))
++	    if (unlikely(ret < 0))
+ 		       remove_waiter(lock, waiter);
+ 	    raw_spin_unlock_irq(&lock->wait_lock);
