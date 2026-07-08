@@ -1,7 +1,7 @@
 diff -uprN -x .DS_Store a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
 --- a/kernel/locking/rtmutex.c	2026-03-17 04:30:12
 +++ b/kernel/locking/rtmutex.c	2026-07-08 19:00:27
-@@ -1520,23 +1520,28 @@ static bool rtmutex_spin_on_owner(struct rt_mutex_base *lock,
+@@ -1520,23 +1520,28 @@ static bool rtmutex_spin_on_owner(struct rt_mutex_base *lock)
   *
   * Must be called with lock->wait_lock held and interrupts disabled. It must
   * have just failed to try_to_take_rt_mutex().
@@ -31,7 +31,7 @@ diff -uprN -x .DS_Store a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
  
  	   /*
  	    * Only update priority if the waiter was the highest priority
-@@ -1569,7 +1574,7 @@ static void __sched remove_waiter(struct rt_mutex_base *lock,
+@@ -1569,7 +1574,7 @@ static void __sched remove_waiter(struct rt_mutex_base *lock)
  	   raw_spin_unlock_irq(&lock->wait_lock);
  
  	   rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
@@ -40,11 +40,10 @@ diff -uprN -x .DS_Store a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
  
  	   raw_spin_lock_irq(&lock->wait_lock);
  }
-
 diff -uprN -x .DS_Store a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
 --- a/kernel/locking/rtmutex_api.c	2026-03-17 04:30:12
 +++ b/kernel/locking/rtmutex_api.c	2026-07-08 19:00:27
-@@ -349,7 +349,7 @@ int __sched rt_mutex_start_proxy_lock(struct rt_mutex_base *lock,
+@@ -349,7 +349,7 @@ int __sched rt_mutex_start_proxy_lock(struct rt_mutex_base *lock)
  
  	    raw_spin_lock_irq(&lock->wait_lock);
  	    ret = __rt_mutex_start_proxy_lock(lock, waiter, task, &wake_q);
