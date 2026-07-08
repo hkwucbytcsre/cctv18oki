@@ -314,10 +314,6 @@ jobs:
           echo ">>> 应用 test.patch 补丁..."
           cd kernel_workspace/common
           wget https://github.com/hkwucbytcsre/cctv18oki/raw/main/other_patch/test.patch
-          # 修复格式：删除 @@ 行后的函数名（避免 malformed patch）
-          sed -i 's/^@@ -[0-9]\+,[0-9]\+ +[0-9]\+,[0-9]\+ @@.*$/@@/' test.patch
-          # 转换 DOS 换行符为 Unix（防止 \r 导致问题）
-          sed -i 's/\r$//' test.patch
           # 应用补丁
           patch -p1 -F 3 < test.patch
           echo "✓ test.patch 补丁应用成功"
