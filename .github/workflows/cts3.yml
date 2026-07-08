@@ -309,6 +309,14 @@ jobs:
             ccache -sv
           fi
 
+      - name: 应用 test.patch 补丁
+        run: |
+          echo ">>> 应用 test.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://github.com/hkwucbytcsre/cctv18oki/raw/main/other_patch/test.patch
+          patch -p1 -F 3 < test.patch
+          echo "✓ test.patch 补丁应用成功"
+
       - name: 添加KernelSU
         id: ksu_version
         run: |
