@@ -314,8 +314,29 @@ jobs:
           echo ">>> 应用 test.patch 补丁..."
           cd kernel_workspace/common
           wget https://github.com/hkwucbytcsre/cctv18oki/raw/main/other_patch/test.patch
+          # 修复格式：删除 @@ 行后的函数名（避免 malformed patch）
+          sed -i 's/^@@ -[0-9]\+,[0-9]\+ +[0-9]\+,[0-9]\+ @@.*$/@@/' test.patch
+          # 转换 DOS 换行符为 Unix（防止 \r 导致问题）
+          sed -i 's/\r$//' test.patch
+          # 应用补丁
           patch -p1 -F 3 < test.patch
           echo "✓ test.patch 补丁应用成功"
+          
+          # ===== 验证补丁是否生效 =====
+          echo ">>> 验证补丁应用结果..."
+          # 检查关键代码是否存在
+          if grep -q "scoped_guard(raw_spinlock, &waiter_task->pi_lock)" kernel/locking/rtmutex.c; then
+            echo "✅ 补丁成功应用：检测到 scoped_guard 代码"
+            echo "--- 修改后的相关代码片段（前后共 10 行） ---"
+            # 使用 grep -B 2 -A 5 显示上下文，并用 cat 风格输出
+            grep -B 2 -A 5 "scoped_guard" kernel/locking/rtmutex.c | cat
+          else
+            echo "❌ 补丁未正确应用，未检测到关键代码"
+            # 可选：显示文件相关部分以便调试
+            echo "--- 当前 rtmutex.c 中 remove_waiter 函数附近内容 ---"
+            grep -A 20 "static void __sched remove_waiter" kernel/locking/rtmutex.c | cat
+            exit 1
+          fi
 
       - name: 添加KernelSU
         id: ksu_version
