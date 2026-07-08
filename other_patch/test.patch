@@ -31,20 +31,18 @@ diff -uprN -x .DS_Store a/kernel/locking/rtmutex.c b/kernel/locking/rtmutex.c
  
  	   /*
  	    * Only update priority if the waiter was the highest priority
-@@ -1566,10 +1571,10 @@ static void __sched remove_waiter(struct rt_mutex_base *lock)
-    	/* gets dropped in rt_mutex_adjust_prio_chain()! */
-    	get_task_struct(owner);
-
-     raw_spin_unlock_irq(&lock->wait_lock);
+@@ -1569,10 +1574,10 @@ static void __sched remove_waiter(struct rt_mutex_base *lock)
+   raw_spin_unlock_irq(&lock->wait_lock);
  
- 	   rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
--	  			             next_lock, NULL, current);
-+	  			             next_lock, NULL, waiter_task);
+ 	 rt_mutex_adjust_prio_chain(owner, RT_MUTEX_MIN_CHAINWALK, lock,
+-	  			           next_lock, NULL, current);
++	  			           next_lock, NULL, waiter_task);
  
- 	   raw_spin_lock_irq(&lock->wait_lock);
+ 	 raw_spin_lock_irq(&lock->wait_lock);
  }
 
  /**
+
 diff -uprN -x .DS_Store a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
 --- a/kernel/locking/rtmutex_api.c	2026-03-17 04:30:12
 +++ b/kernel/locking/rtmutex_api.c	2026-07-08 19:00:27
