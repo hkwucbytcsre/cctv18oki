@@ -53,3 +53,4 @@ diff --git a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
 +	if (unlikely(ret < 0))
  		remove_waiter(lock, waiter);
  	raw_spin_unlock_irq(&lock->wait_lock);
+ 
