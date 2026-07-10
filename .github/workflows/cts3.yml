@@ -309,12 +309,11 @@ jobs:
             ccache -sv
           fi
 
-      - name: 应用 test.patch 补丁
+      - name: 应用 cve2026-43499 补丁
         run: |
           echo ">>> 应用 test.patch 补丁..."
           cd kernel_workspace/common
           wget https://github.com/hkwucbytcsre/cctv18oki/raw/main/other_patch/test.patch
-          # 应用补丁
           patch -p1 -F 3 < test.patch
           echo "✓ test.patch 补丁应用成功"
           
@@ -323,12 +322,15 @@ jobs:
           # 检查关键代码是否存在
           if grep -q "scoped_guard(raw_spinlock, &waiter_task->pi_lock)" kernel/locking/rtmutex.c; then
             echo "✅ 补丁成功应用：检测到 scoped_guard 代码"
-            echo "--- 修改后的相关代码片段（前后共 10 行） ---"
-            # 使用 grep -B 2 -A 5 显示上下文，并用 cat 风格输出
-            grep -B 2 -A 5 "scoped_guard" kernel/locking/rtmutex.c | cat
+            echo "--- 修改后的 rtmutex.c 中 remove_waiter 函数完整内容 ---"
+            # 完整显示 remove_waiter 函数体（从函数声明到闭合大括号）
+            sed -n '/^static void __sched remove_waiter(/,/^}/p' kernel/locking/rtmutex.c | cat
+            echo ""
+            echo "--- 修改后的 rtmutex_api.c 中相关变更 ---"
+            # 显示 rtmutex_api.c 中修改的附近内容（也可用 sed 提取整个函数，但仅一行变化）
+            grep -B 5 -A 5 "remove_waiter(lock, waiter);" kernel/locking/rtmutex_api.c | cat
           else
             echo "❌ 补丁未正确应用，未检测到关键代码"
-            # 可选：显示文件相关部分以便调试
             echo "--- 当前 rtmutex.c 中 remove_waiter 函数附近内容 ---"
             grep -A 20 "static void __sched remove_waiter" kernel/locking/rtmutex.c | cat
             exit 1
