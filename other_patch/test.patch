@@ -53,4 +53,307 @@ diff --git a/kernel/locking/rtmutex_api.c b/kernel/locking/rtmutex_api.c
 +	if (unlikely(ret < 0))
  		remove_waiter(lock, waiter);
  	raw_spin_unlock_irq(&lock->wait_lock);
+diff --git a/core/java/android/app/IActivityTaskManager.aidl b/core/java/android/app/IActivityTaskManager.aidl
+index f6a16d5..30de47b 100644
+--- a/core/java/android/app/IActivityTaskManager.aidl
++++ b/core/java/android/app/IActivityTaskManager.aidl
+@@ -351,12 +351,14 @@
+     void detachNavigationBarFromApp(in IBinder transition);
+ 
+     /**
+-     * Marks a process as a delegate for the currently playing remote transition animation. This
+-     * must be called from a process that is already a remote transition player or delegate. Any
+-     * marked delegates are cleaned-up automatically at the end of the transition.
+-     * @param caller is the IApplicationThread representing the calling process.
++     * Informs the transition system that the current transition is about to be animated by a
++     * remote process rather than the calling process. Core must have already been informed of
++     * the delegate process via RemoteTransition or WindowContainerTransaction.setAnimationDelegate.
++     * This must be called from a process that is already a remote transition player or delegate.
++     * Delegates are cleaned-up automatically at the end of the transition.
++     * @param transition is the token representing the transition being animated.
+      */
+-    void setRunningRemoteTransitionDelegate(in IApplicationThread caller);
++    void setRunningRemoteTransitionDelegate(in IBinder transition);
+ 
+     /**
+      * Prepare the back navigation in the server. This setups the leashed for sysui to animate
+diff --git a/core/java/android/window/WindowContainerTransaction.java b/core/java/android/window/WindowContainerTransaction.java
+index 8f7f941..ebff819 100644
+--- a/core/java/android/window/WindowContainerTransaction.java
++++ b/core/java/android/window/WindowContainerTransaction.java
+@@ -708,6 +708,21 @@
+         return this;
+     }
+ 
++    /**
++     * Informs WM that a non-shell process is expected to animate this transition. This is only
++     * used for recents-launch since it has a special way to delegate remote animation. For normal
++     * launches, RemoteTransition in ActivityOptions provides the delegate.
++     * @hide
++     */
++    @NonNull
++    public WindowContainerTransaction setAnimationDelegate(@NonNull IBinder delegate) {
++        mHierarchyOps.add(new HierarchyOp.Builder(
++                HierarchyOp.HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE)
++                .setInsetsFrameOwner(delegate)
++                .build());
++        return this;
++    }
++
+     /*
+      * ===========================================================================================
+      * Multitasking
+@@ -1634,6 +1649,7 @@
+         public static final int HIERARCHY_OP_TYPE_REMOVE_ROOT_TASK = 24;
+         public static final int HIERARCHY_OP_TYPE_APP_COMPAT_REACHABILITY = 25;
+         public static final int HIERARCHY_OP_TYPE_SET_SAFE_REGION_BOUNDS = 26;
++        public static final int HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE = 27;
+ 
+         @IntDef(prefix = {"HIERARCHY_OP_TYPE_"}, value = {
+                 HIERARCHY_OP_TYPE_REPARENT,
+@@ -1663,6 +1679,7 @@
+                 HIERARCHY_OP_TYPE_REMOVE_ROOT_TASK,
+                 HIERARCHY_OP_TYPE_APP_COMPAT_REACHABILITY,
+                 HIERARCHY_OP_TYPE_SET_SAFE_REGION_BOUNDS,
++                HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE,
+         })
+         @Retention(RetentionPolicy.SOURCE)
+         public @interface HierarchyOpType {
+@@ -2145,6 +2162,7 @@
+                 case HIERARCHY_OP_TYPE_SET_EXCLUDE_INSETS_TYPES: return "setExcludeInsetsTypes";
+                 case HIERARCHY_OP_TYPE_SET_KEYGUARD_STATE: return "setKeyguardState";
+                 case HIERARCHY_OP_TYPE_SET_SAFE_REGION_BOUNDS: return "setSafeRegionBounds";
++                case HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE: return "setAnimationDelegate";
+                 default: return "HOP(" + type + ")";
+             }
+         }
+@@ -2250,6 +2268,9 @@
+                     sb.append("container= ").append(mContainer)
+                             .append(" safeRegionBounds= ")
+                             .append(mSafeRegionBounds);
++                case HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE:
++                    sb.append(" caller=").append(mInsetsFrameOwner);
++                    break;
+                 default:
+                     sb.append("container=").append(mContainer)
+                             .append(" reparent=").append(mReparent)
+diff --git a/libs/WindowManager/Shell/src/com/android/wm/shell/recents/RecentsTransitionHandler.java b/libs/WindowManager/Shell/src/com/android/wm/shell/recents/RecentsTransitionHandler.java
+index 8e10f15..e2c52cb 100644
+--- a/libs/WindowManager/Shell/src/com/android/wm/shell/recents/RecentsTransitionHandler.java
++++ b/libs/WindowManager/Shell/src/com/android/wm/shell/recents/RecentsTransitionHandler.java
+@@ -170,9 +170,6 @@
+     @VisibleForTesting
+     public IBinder startRecentsTransition(PendingIntent intent, Intent fillIn, Bundle options,
+             IApplicationThread appThread, IRecentsAnimationRunner listener) {
+-        // only care about latest one.
+-        mAnimApp = appThread;
+-
+         for (int i = 0; i < mStateListeners.size(); i++) {
+             mStateListeners.get(i).onTransitionStateChanged(TRANSITION_STATE_REQUESTED);
+         }
+@@ -183,7 +180,8 @@
+         if (isSyntheticRequest) {
+             transition = startSyntheticRecentsTransition(listener);
+         } else {
+-            transition = startRealRecentsTransition(intent, fillIn, options, listener);
++            transition = startRealRecentsTransition(intent, fillIn, options, listener,
++                    appThread);
+         }
+         return transition;
+     }
+@@ -213,12 +211,13 @@
+      * Starts a real WM-backed recents transition.
+      */
+     private IBinder startRealRecentsTransition(PendingIntent intent, Intent fillIn, Bundle options,
+-            IRecentsAnimationRunner listener) {
++            IRecentsAnimationRunner listener, IApplicationThread appThread) {
+         ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENTS_TRANSITION,
+                 "RecentsTransitionHandler.startRecentsTransition");
+ 
+         final WindowContainerTransaction wct = new WindowContainerTransaction();
+         wct.sendPendingIntent(intent, fillIn, options);
++        wct.setAnimationDelegate(appThread.asBinder());
+ 
+         // Find the mixed handler which should handle this request (if we are in a state where a
+         // mixed handler is needed).  This is slightly convoluted because starting the transition
+@@ -305,7 +304,7 @@
+                     "RecentsTransitionHandler.startAnimation: failed to start animation");
+             return false;
+         }
+-        Transitions.setRunningRemoteTransitionDelegate(animApp);
++        Transitions.setRunningRemoteTransitionDelegate(transition);
+         return true;
+     }
+ 
+diff --git a/libs/WindowManager/Shell/src/com/android/wm/shell/splitscreen/SplitScreenTransitions.java b/libs/WindowManager/Shell/src/com/android/wm/shell/splitscreen/SplitScreenTransitions.java
+index 65fa9b4..bca198a 100644
+--- a/libs/WindowManager/Shell/src/com/android/wm/shell/splitscreen/SplitScreenTransitions.java
++++ b/libs/WindowManager/Shell/src/com/android/wm/shell/splitscreen/SplitScreenTransitions.java
+@@ -374,6 +374,9 @@
+             mSplitInvocationListenerExecutor.execute(() -> mSplitInvocationListener
+                     .onSplitAnimationInvoked(true /*animationRunning*/));
+         }
++        if (remoteTransition != null && remoteTransition.getAppThread() != null) {
++            wct.setAnimationDelegate(remoteTransition.getAppThread().asBinder());
++        }
+         final IBinder transition = mTransitions.startTransition(transitType, wct, handler);
+         setEnterTransition(transition, remoteTransition, extraTransitType, resizeAnim,
+                 snapPosition);
+diff --git a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/OneShotRemoteHandler.java b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/OneShotRemoteHandler.java
+index ec73738..86d60af 100644
+--- a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/OneShotRemoteHandler.java
++++ b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/OneShotRemoteHandler.java
+@@ -69,7 +69,7 @@
+         final IBinder.DeathRecipient remoteDied = createDeathRecipient(finishCallback);
+         IRemoteTransitionFinishedCallback cb =
+                 createFinishedCallback(info, finishTransaction, finishCallback, remoteDied);
+-        Transitions.setRunningRemoteTransitionDelegate(mRemote.getAppThread());
++        Transitions.setRunningRemoteTransitionDelegate(transition);
+         try {
+             if (mRemote.asBinder() != null) {
+                 mRemote.asBinder().linkToDeath(remoteDied, 0 /* flags */);
+@@ -146,7 +146,7 @@
+         IRemoteTransitionFinishedCallback cb = createFinishedCallback(
+                 info, null /* finishTransaction */, finishCallback, remoteDied);
+ 
+-        Transitions.setRunningRemoteTransitionDelegate(mRemote.getAppThread());
++        Transitions.setRunningRemoteTransitionDelegate(transition);
+ 
+         try {
+             if (mRemote.asBinder() != null) {
+diff --git a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/RemoteTransitionHandler.java b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/RemoteTransitionHandler.java
+index c4a410b..ed745c1 100644
+--- a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/RemoteTransitionHandler.java
++++ b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/RemoteTransitionHandler.java
+@@ -173,7 +173,7 @@
+             remote.getRemoteTransition().startAnimation(transition, remoteInfo, remoteStartT, cb);
+             // assume that remote will apply the start transaction.
+             startTransaction.clear();
+-            Transitions.setRunningRemoteTransitionDelegate(remote.getAppThread());
++            Transitions.setRunningRemoteTransitionDelegate(transition);
+         } catch (RemoteException e) {
+             Log.e(Transitions.TAG, "Error running remote transition.", e);
+             if (remoteStartT != startTransaction) {
+diff --git a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/Transitions.java b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/Transitions.java
+index 8472426..85d2309 100644
+--- a/libs/WindowManager/Shell/src/com/android/wm/shell/transition/Transitions.java
++++ b/libs/WindowManager/Shell/src/com/android/wm/shell/transition/Transitions.java
+@@ -48,7 +48,6 @@
+ import android.annotation.Nullable;
+ import android.app.ActivityTaskManager;
+ import android.app.AppGlobals;
+-import android.app.IApplicationThread;
+ import android.content.ContentResolver;
+ import android.content.Context;
+ import android.content.pm.PackageManager;
+@@ -508,10 +507,10 @@
+     }
+ 
+     /** Boosts the process priority of remote animation player. */
+-    public static void setRunningRemoteTransitionDelegate(IApplicationThread appThread) {
+-        if (appThread == null) return;
++    public static void setRunningRemoteTransitionDelegate(IBinder transitionToken) {
++        if (transitionToken == null) return;
+         try {
+-            ActivityTaskManager.getService().setRunningRemoteTransitionDelegate(appThread);
++            ActivityTaskManager.getService().setRunningRemoteTransitionDelegate(transitionToken);
+         } catch (SecurityException e) {
+             Log.e(TAG, "Unable to boost animation process. This should only happen"
+                     + " during unit tests");
+diff --git a/services/core/java/com/android/server/wm/ActivityTaskManagerService.java b/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
+index 3c32806..a7f1265 100644
+--- a/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
++++ b/services/core/java/com/android/server/wm/ActivityTaskManagerService.java
+@@ -5842,7 +5842,10 @@
+     }
+ 
+     @Override
+-    public void setRunningRemoteTransitionDelegate(IApplicationThread delegate) {
++    public void setRunningRemoteTransitionDelegate(IBinder transitionToken) {
++        final Transition transition = Transition.fromBinder(transitionToken);
++        if (transition == null) return;
++        final IApplicationThread delegate = transition.mRemoteDelegate;
+         final TransitionController controller = getTransitionController();
+         // A quick path without entering WM lock.
+         if (delegate != null && controller.mRemotePlayer.reportRunning(delegate)) {
+diff --git a/services/core/java/com/android/server/wm/Transition.java b/services/core/java/com/android/server/wm/Transition.java
+index 65001f4..a85ca327 100644
+--- a/services/core/java/com/android/server/wm/Transition.java
++++ b/services/core/java/com/android/server/wm/Transition.java
+@@ -189,6 +189,12 @@
+ 
+     private @Nullable ActivityRecord mPipActivity;
+ 
++    /**
++     * If this transition has a corresponding RemoteTransition, this tracks the process which will
++     * play the animation.
++     */
++    IApplicationThread mRemoteDelegate = null;
++
+     /** Only use for clean-up after binder death! */
+     private SurfaceControl.Transaction mStartTransaction = null;
+     private SurfaceControl.Transaction mFinishTransaction = null;
+diff --git a/services/core/java/com/android/server/wm/TransitionController.java b/services/core/java/com/android/server/wm/TransitionController.java
+index 02b53b0..cb22e7b 100644
+--- a/services/core/java/com/android/server/wm/TransitionController.java
++++ b/services/core/java/com/android/server/wm/TransitionController.java
+@@ -849,8 +849,17 @@
+                 transition.setPipActivity(null);
+             }
+ 
++            final RemoteTransition remoteInfo;
++            if (remoteTransition != null) {
++                transition.mRemoteDelegate = remoteTransition.getAppThread();
++                remoteInfo = new RemoteTransition(remoteTransition.getRemoteTransition(),
++                        remoteTransition.getDebugName());
++            } else {
++                remoteInfo = null;
++            }
++
+             final TransitionRequestInfo request = new TransitionRequestInfo(transition.mType,
+-                    startTaskInfo, pipChange, remoteTransition, displayChange,
++                    startTaskInfo, pipChange, remoteInfo, displayChange,
+                     transition.getFlags(), transition.getSyncId());
+ 
+             transition.mLogger.mRequestTimeNs = SystemClock.elapsedRealtimeNanos();
+diff --git a/services/core/java/com/android/server/wm/WindowOrganizerController.java b/services/core/java/com/android/server/wm/WindowOrganizerController.java
+index c19fa8c..e703c3a 100644
+--- a/services/core/java/com/android/server/wm/WindowOrganizerController.java
++++ b/services/core/java/com/android/server/wm/WindowOrganizerController.java
+@@ -72,6 +72,7 @@
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_RESTORE_TRANSIENT_ORDER;
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_ADJACENT_ROOTS;
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_ALWAYS_ON_TOP;
++import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE;
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_EXCLUDE_INSETS_TYPES;
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_DISABLE_LAUNCH_ADJACENT;
+ import static android.window.WindowContainerTransaction.HierarchyOp.HIERARCHY_OP_TYPE_SET_IS_TRIMMABLE;
+@@ -102,6 +103,7 @@
+ import android.annotation.Nullable;
+ import android.app.ActivityManager;
+ import android.app.ActivityOptions;
++import android.app.IApplicationThread;
+ import android.app.WindowConfiguration;
+ import android.content.ActivityNotFoundException;
+ import android.content.Intent;
+@@ -1529,6 +1531,19 @@
+                 container.setSafeRegionBounds(hop.getSafeRegionBounds());
+                 effects |= TRANSACT_EFFECTS_CLIENT_CONFIG;
+             }
++            case HIERARCHY_OP_TYPE_SET_ANIMATION_DELEGATE: {
++                final Transition transition = chain.mTransition;
++                if (transition == null) {
++                    Slog.e(TAG, "No transition to set animation delegate on");
++                    break;
++                }
++                final IBinder appThread = hop.getInsetsFrameOwner();
++                if (appThread == null) {
++                    Slog.e(TAG, "No appThread provided to SET_ANIMATION_DELEGATE");
++                    break;
++                }
++                transition.mRemoteDelegate = IApplicationThread.Stub.asInterface(appThread);
++            }
+         }
+         return effects;
+     }
  
