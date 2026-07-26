@@ -213,17 +213,16 @@ jobs:
           wait
           echo "所有源码及llvm-Clang18工具链初始化完成！"
           
-          # ========== 仅新增：从 URL 提取版本号并更新 SUB_VERSION 和 CCACHE_KEY ==========
-          VERSION_FULL=$(echo "$KERNEL_ZIP_URL" | grep -oP '\d+\.\d+\.\d+' | head -1)
-          if [ -n "$VERSION_FULL" ]; then
-            KERNEL_VER=$(echo "$VERSION_FULL" | cut -d. -f1-2)
-            SUB_VER=$(echo "$VERSION_FULL" | cut -d. -f3)
+          # ========== 仅新增：从 URL 中提取 6.6.xxx 中的 xxx ==========
+          # 匹配 "6.6." 后面的数字（如 66 或 118）
+          SUB_VER=$(echo "$KERNEL_ZIP_URL" | grep -oP '6\.6\.\K\d+' | head -1)
+          if [ -n "$SUB_VER" ]; then
             echo "SUB_VERSION=$SUB_VER" >> $GITHUB_ENV
-            NEW_CCACHE_KEY="ccache-ecsv4-${KERNEL_VER}.${SUB_VER}"
+            NEW_CCACHE_KEY="ccache-ecsv4-6.6.${SUB_VER}"
             echo "CCACHE_KEY=$NEW_CCACHE_KEY" >> $GITHUB_ENV
-            echo "从 URL 提取的版本: $VERSION_FULL，SUB_VERSION=$SUB_VER，CCACHE_KEY=$NEW_CCACHE_KEY"
+            echo "从 URL 提取的内核子版本: $SUB_VER，CCACHE_KEY=$NEW_CCACHE_KEY"
           else
-            echo "警告: 未能从 URL 中提取版本号，将保留原有 env 默认值"
+            echo "警告: 未能从 URL 中提取 6.6.x 版本，保留原有 env 默认值"
           fi
           # ==========================================================
           
