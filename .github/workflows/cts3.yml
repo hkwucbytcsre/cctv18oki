@@ -213,38 +213,35 @@ jobs:
           wait
           echo "所有源码及llvm-Clang18工具链初始化完成！"
           
-          # ========== 新增：动态提取内核版本并更新环境变量 ==========
-          cd common
-          # 提取版本信息
-          VERSION=$(grep -oP '^VERSION = \K.*' Makefile)
-          PATCHLEVEL=$(grep -oP '^PATCHLEVEL = \K.*' Makefile)
-          SUBLEVEL_SRC=$(grep -oP '^SUBLEVEL = \K.*' Makefile)
-          # 若用户指定了 sublevel，则使用用户值，否则用源码值
-          if [ -n "${{ github.event.inputs.sublevel }}" ]; then
-            SUBLEVEL_FINAL="${{ github.event.inputs.sublevel }}"
+          # ========== 新增：从 URL 提取版本号并更新环境变量 ==========
+          # 提取类似 6.6.66 或 6.6.118 的版本号
+          VERSION_FULL=$(echo "$KERNEL_ZIP_URL" | grep -oP '\d+\.\d+\.\d+' | head -1)
+          if [ -n "$VERSION_FULL" ]; then
+            KERNEL_VER=$(echo "$VERSION_FULL" | cut -d. -f1-2)   # 例如 6.6
+            SUB_VER=$(echo "$VERSION_FULL" | cut -d. -f3)        # 例如 66 或 118
+            echo "KERNEL_VERSION=$KERNEL_VER" >> $GITHUB_ENV
+            echo "SUB_VERSION=$SUB_VER" >> $GITHUB_ENV
+            NEW_CCACHE_KEY="ccache-ecsv4-${KERNEL_VER}.${SUB_VER}"
+            echo "CCACHE_KEY=$NEW_CCACHE_KEY" >> $GITHUB_ENV
+            echo "从 URL 提取的内核版本: $VERSION_FULL"
+            echo "CCACHE_KEY 已更新为: $NEW_CCACHE_KEY"
           else
-            SUBLEVEL_FINAL="$SUBLEVEL_SRC"
+            echo "警告: 未能从 URL 中提取版本号，将使用原有的 env 默认值"
           fi
-          # 构建 KERNEL_VERSION = VERSION.PATCHLEVEL
-          KERNEL_VER="$VERSION.$PATCHLEVEL"
-          # 写入环境变量
-          echo "KERNEL_VERSION=$KERNEL_VER" >> $GITHUB_ENV
-          echo "SUB_VERSION=$SUBLEVEL_FINAL" >> $GITHUB_ENV
-          # 更新 CCACHE_KEY，格式固定为 ccache-ecsv4-${KERNEL_VER}.${SUBLEVEL_FINAL}
-          NEW_CCACHE_KEY="ccache-ecsv4-${KERNEL_VER}.${SUBLEVEL_FINAL}"
-          echo "CCACHE_KEY=$NEW_CCACHE_KEY" >> $GITHUB_ENV
-          echo "动态更新后的内核版本: $KERNEL_VER.$SUBLEVEL_FINAL"
-          echo "CCACHE_KEY 已更新为: $NEW_CCACHE_KEY"
-          cd ../..
           # ==========================================================
           
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
-          for f in common/scripts/setlocalversion; do
-            sed -i 's/ -dirty//g' "$f"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
-          done
-
+          # 增加文件存在判断，避免 setlocalversion 不存在时报错
+          if [ -f common/scripts/setlocalversion ]; then
+            for f in common/scripts/setlocalversion; do
+              sed -i 's/ -dirty//g' "$f"
+              sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
+            done
+          else
+            echo "警告: common/scripts/setlocalversion 不存在，跳过修改"
+          fi
+    
       - name: 配置ccache目录
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
