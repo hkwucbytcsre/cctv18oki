@@ -212,6 +212,32 @@ jobs:
           
           wait
           echo "所有源码及llvm-Clang18工具链初始化完成！"
+          
+          # ========== 新增：动态提取内核版本并更新环境变量 ==========
+          cd common
+          # 提取版本信息
+          VERSION=$(grep -oP '^VERSION = \K.*' Makefile)
+          PATCHLEVEL=$(grep -oP '^PATCHLEVEL = \K.*' Makefile)
+          SUBLEVEL_SRC=$(grep -oP '^SUBLEVEL = \K.*' Makefile)
+          # 若用户指定了 sublevel，则使用用户值，否则用源码值
+          if [ -n "${{ github.event.inputs.sublevel }}" ]; then
+            SUBLEVEL_FINAL="${{ github.event.inputs.sublevel }}"
+          else
+            SUBLEVEL_FINAL="$SUBLEVEL_SRC"
+          fi
+          # 构建 KERNEL_VERSION = VERSION.PATCHLEVEL
+          KERNEL_VER="$VERSION.$PATCHLEVEL"
+          # 写入环境变量
+          echo "KERNEL_VERSION=$KERNEL_VER" >> $GITHUB_ENV
+          echo "SUB_VERSION=$SUBLEVEL_FINAL" >> $GITHUB_ENV
+          # 更新 CCACHE_KEY，格式固定为 ccache-ecsv4-${KERNEL_VER}.${SUBLEVEL_FINAL}
+          NEW_CCACHE_KEY="ccache-ecsv4-${KERNEL_VER}.${SUBLEVEL_FINAL}"
+          echo "CCACHE_KEY=$NEW_CCACHE_KEY" >> $GITHUB_ENV
+          echo "动态更新后的内核版本: $KERNEL_VER.$SUBLEVEL_FINAL"
+          echo "CCACHE_KEY 已更新为: $NEW_CCACHE_KEY"
+          cd ../..
+          # ==========================================================
+          
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
           for f in common/scripts/setlocalversion; do
