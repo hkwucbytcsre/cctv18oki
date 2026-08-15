@@ -190,7 +190,7 @@ jobs:
           echo "正在克隆源码仓库..."
           KERNEL_ZIP_URL="${{ github.event.inputs.kernel_source_url }}"
           if [ -z "$KERNEL_ZIP_URL" ]; then
-            KERNEL_ZIP_URL="https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_v_15.0.2_oneplus_13_6.6.66.zip"
+            KERNEL_ZIP_URL="https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/refs/heads/oneplus/sm8750_b_16.0.0_oneplus_13_6.6.118.zip"
           fi
           aria2c -s16 -x16 -k1M "$KERNEL_ZIP_URL" -o common.zip && 
           unzip -q common.zip && 
@@ -1323,7 +1323,29 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: ${{ env.CCACHE_REAL_KEY }}-${{ runner.os }}-${{ github.ref_name }}
-         
+
+      - name: 导出 Module.symvers 和 .config
+        run: |
+          cd kernel_workspace
+          mkdir -p build_artifacts
+          cp common/out/.config build_artifacts/target.config
+          if [ -f common/out/Module.symvers ]; then
+            cp common/out/Module.symvers build_artifacts/Module.symvers
+          elif [ -f common/out/vmlinux.symvers ]; then
+            cp common/out/vmlinux.symvers build_artifacts/Module.symvers
+          else
+            echo "::error::未找到符号表文件"
+            exit 1
+          fi
+          zip -r build_artifacts.zip build_artifacts
+      
+      - name: 上传 构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: kernel-build-artifacts
+          path: kernel_workspace/build_artifacts.zip
+          archive: false
+
       - name: 应用KPM并修补内核
         if: inputs.kpm_enable
         run: |
