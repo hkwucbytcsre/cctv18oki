@@ -119,8 +119,8 @@ Cc: stable@vger.kernel.org
 ---
  kernel/exit.c                  |   7 +-
  kernel/signal.c                |  10 +-
- kernel/time/posix-cpu-timers.c | 173 ++++++++++++++++++++++-----------
- 3 files changed, 130 insertions(+), 60 deletions(-)
+ kernel/time/posix-cpu-timers.c | 153 ++++++++++++++++++++-------------
+ 3 files changed, 110 insertions(+), 60 deletions(-)
 
 diff --git a/kernel/exit.c b/kernel/exit.c
 index 1056422bc1013e..2c0b1c02920f46 100644
@@ -290,8 +290,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -	p = cpu_timer_task_rcu(timer);
 -	if (!p)
 -		goto out;
-+	p = timer_lock_sighand(timer, &flags);
- 
+-
 -	/*
 -	 * Protect against sighand release/switch in exit/exec and process/
 -	 * thread timer list entry concurrent read/writes.
@@ -304,6 +303,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -		 */
 -		WARN_ON_ONCE(ctmr->head || timerqueue_node_queued(&ctmr->node));
 -	} else {
++	p = timer_lock_sighand(timer, &flags);
 +	if (likely(p)) {
  		if (timer->it.cpu.firing) {
  			/*
@@ -389,7 +389,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  }
  
 @@ -1018,19 +1082,12 @@ static void check_process_timers(struct task_struct *tsk,
- static bool posix_cpu_timer_rearm(struct k_itimer *timer)
+ static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
 -	struct sighand_struct *sighand;
@@ -397,16 +397,38 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	unsigned long flags;
  	u64 now;
  
--	guard(rcu)();
+-	rcu_read_lock();
 -	p = cpu_timer_task_rcu(timer);
 -	if (!p)
--		return true;
+-		goto out;
 -
 -	/* Protect timer list r/w in arm_timer() */
 -	sighand = lock_task_sighand(p, &flags);
 -	if (unlikely(sighand == NULL))
+-		goto out;
 +	p = timer_lock_sighand(timer, &flags);
 +	if (unlikely(!p))
- 		return true;
++		return;
  
  	/*
+ 	 * Fetch the current sample and update the timer's expiry time.
+@@ -1040,18 +1097,16 @@ static void posix_cpu_timer_rearm(struct k_itimer *timer)
+ 		now = cpu_clock_sample(clkid, p);
+ 	else
+ 		now = cpu_clock_sample_group(clkid, p, true);
+-	
++
+ 	bump_cpu_timer(timer, now);
+ 
+ 	/*
+ 	 * Now re-arm for the new expiry time.
+ 	 */
+ 	arm_timer(timer, p);
+ 	unlock_task_sighand(p, &flags);
+-out:
+-	rcu_read_unlock();
+ }
+ 
+ /**
+  * task_cputimers_expired - Check whether posix CPU timers are expired
+  *
