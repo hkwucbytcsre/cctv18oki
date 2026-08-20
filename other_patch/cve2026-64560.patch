@@ -322,7 +322,9 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 - 	return ret;
  }
 + 	return ret;
-@@ -626,21 +710,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+
+ static void cleanup_timerqueue(struct timerqueue_head *head)
+@@ -626,21 +711,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
  	struct cpu_timer *ctmr = &timer->it.cpu;
  	u64 old_expires, new_expires, now;
@@ -350,7 +352,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  
  	/*
  	 * Use the to_ktime conversion because that clamps the maximum
-@@ -648,20 +728,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -648,20 +729,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
  	new_expires = ktime_to_ns(timespec64_to_ktime(new->it_value));
  
@@ -371,7 +373,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	/* Retrieve the current expiry time before disarming the timer */
  	old_expires = cpu_timer_getexpires(ctmr);
  
-@@ -698,7 +764,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -698,7 +765,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	/* Retry if the timer expiry is running concurrently */
  	if (unlikely(ret)) {
  		unlock_task_sighand(p, &flags);
@@ -380,7 +382,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	}
  
  	/* Convert relative expiry time to absolute */
-@@ -733,8 +799,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -733,8 +800,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
  	if (!sigev_none && new_expires && now >= new_expires)
  		cpu_timer_fire(timer);
@@ -389,7 +391,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	return ret;
  }
  
-@@ -1047,19 +1108,12 @@ static void check_process_timers(struct task_struct *tsk,
+@@ -1047,19 +1109,12 @@ static void check_process_timers(struct task_struct *tsk,
  static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
@@ -429,3 +431,6 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -out:
 -	rcu_read_unlock();
  }
+
+ /**
+  * task_cputimers_expired - Check whether posix CPU timers are expired
