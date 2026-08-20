@@ -276,7 +276,9 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  
  /*
   * Clean up a CPU-clock timer that is about to be destroyed.
-@@ -469,31 +573,14 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
+@@ -470,29 +573,13 @@ static void disarm_timer(struct k_itimer *timer, struct task_struct *p)
+  */
+ static int posix_cpu_timer_del(struct k_itimer *timer)
  {
 -	struct cpu_timer *ctmr = &timer->it.cpu;
 -	struct sighand_struct *sighand;
@@ -288,7 +290,8 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -	p = cpu_timer_task_rcu(timer);
 -	if (!p)
 -		goto out;
--
++	p = timer_lock_sighand(timer, &flags);
+ 
 -	/*
 -	 * Protect against sighand release/switch in exit/exec and process/
 -	 * thread timer list entry concurrent read/writes.
@@ -301,38 +304,24 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -		 */
 -		WARN_ON_ONCE(ctmr->head || timerqueue_node_queued(&ctmr->node));
 -	} else {
-+	p = timer_lock_sighand(timer, &flags);
 +	if (likely(p)) {
--		if (timer->it.cpu.firing)
--			ret = TIMER_RETRY;
--		else
--			disarm_timer(timer, p);
-+		if (timer->it.cpu.firing) {
-+			/*
-+			 * Prevent signal delivery. The timer cannot be dequeued
-+			 * because it's running the firing callback. The timer will
-+			 * be dequeued and the callback is done.
-+			 */
-+			ret = TIMER_RETRY;
-+		} else {
-+			disarm_timer(timer, p);
-+		}
--
+ 		if (timer->it.cpu.firing) {
+ 			/*
+ 			 * Prevent signal delivery. The timer cannot be dequeued
+@@ -501,11 +589,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
  
 -out:
 -	rcu_read_unlock();
--
  	if (!ret) {
 -		put_pid(ctmr->pid);
-+		put_pid(timer->it.cpu.pid);
-+		timer->it_status = POSIX_TIMER_DISARMED;
- 	}
 -
++		put_pid(timer->it.cpu.pid);
++ 		timer->it_status = POSIX_TIMER_DISARMED;
++   }
  	return ret;
- }
-@@ -626,21 +710,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -626,21 +711,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
  	struct cpu_timer *ctmr = &timer->it.cpu;
  	u64 old_expires, new_expires, now;
@@ -360,7 +349,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  
  	/*
  	 * Use the to_ktime conversion because that clamps the maximum
-@@ -648,20 +728,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -648,20 +729,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
  	new_expires = ktime_to_ns(timespec64_to_ktime(new->it_value));
  
@@ -381,7 +370,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	/* Retrieve the current expiry time before disarming the timer */
  	old_expires = cpu_timer_getexpires(ctmr);
  
-@@ -698,7 +764,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -698,7 +765,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	/* Retry if the timer expiry is running concurrently */
  	if (unlikely(ret)) {
  		unlock_task_sighand(p, &flags);
@@ -390,7 +379,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	}
  
  	/* Convert relative expiry time to absolute */
-@@ -733,8 +799,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+@@ -733,8 +800,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
  	if (!sigev_none && new_expires && now >= new_expires)
  		cpu_timer_fire(timer);
@@ -399,25 +388,46 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	return ret;
  }
  
-@@ -1018,19 +1082,12 @@ static void check_process_timers(struct task_struct *tsk,
- static bool posix_cpu_timer_rearm(struct k_itimer *timer)
+@@ -1047,19 +1109,12 @@ static void check_process_timers(struct task_struct *tsk,
+ static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
+	struct task_struct *p;
 -	struct sighand_struct *sighand;
- 	struct task_struct *p;
  	unsigned long flags;
  	u64 now;
  
--	guard(rcu)();
--	p = cpu_timer_task_rcu(timer);
--	if (!p)
--		return true;
+-   rcu_read_lock();
+-   p = cpu_timer_task_rcu(timer);
+-   if (!p)
+-       goto out;
 -
 -	/* Protect timer list r/w in arm_timer() */
 -	sighand = lock_task_sighand(p, &flags);
 -	if (unlikely(sighand == NULL))
+-       goto out;
 +	p = timer_lock_sighand(timer, &flags);
 +	if (unlikely(!p))
- 		return true;
++ 		return;
  
- 	/*
+	/*
+	 * Fetch the current sample and update the timer's expiry time.
+	 */
+	if (CPUCLOCK_PERTHREAD(timer->it_clock))
+		now = cpu_clock_sample(clkid, p);
+	else
+		now = cpu_clock_sample_group(clkid, p, true);
+
+	bump_cpu_timer(timer, now);
+
+	/*
+	 * Now re-arm for the new expiry time.
+	 */
+	arm_timer(timer, p);
+	unlock_task_sighand(p, &flags);
+-out:
+-	rcu_read_unlock();
+ }
+
+ /**
+  * task_cputimers_expired - Check whether posix CPU timers are expired
