@@ -308,19 +308,20 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  		if (timer->it.cpu.firing) {
  			/*
  			 * Prevent signal delivery. The timer cannot be dequeued
-@@ -508,11 +595,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
+@@ -501,11 +589,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
  
 -out:
 -	rcu_read_unlock();
--
  	if (!ret) {
 -		put_pid(ctmr->pid);
+-
 +		put_pid(timer->it.cpu.pid);
- 		timer->it_status = POSIX_TIMER_DISARMED;
- 	}
- 	return ret;
++ 		timer->it_status = POSIX_TIMER_DISARMED;
+- 	return ret;
+ }
++ 	return ret;
 @@ -626,21 +710,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
  	struct cpu_timer *ctmr = &timer->it.cpu;
@@ -388,25 +389,43 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	return ret;
  }
  
-@@ -1018,19 +1082,12 @@ static void check_process_timers(struct task_struct *tsk,
- static bool posix_cpu_timer_rearm(struct k_itimer *timer)
+@@ -1047,19 +1108,12 @@ static void check_process_timers(struct task_struct *tsk,
+ static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
+	struct task_struct *p;
 -	struct sighand_struct *sighand;
- 	struct task_struct *p;
  	unsigned long flags;
  	u64 now;
  
--	guard(rcu)();
--	p = cpu_timer_task_rcu(timer);
--	if (!p)
--		return true;
+-   rcu_read_lock();
+-   p = cpu_timer_task_rcu(timer);
+-   if (!p)
+-       goto out;
 -
 -	/* Protect timer list r/w in arm_timer() */
 -	sighand = lock_task_sighand(p, &flags);
 -	if (unlikely(sighand == NULL))
+-       goto out;
 +	p = timer_lock_sighand(timer, &flags);
 +	if (unlikely(!p))
- 		return true;
++ 		return;
  
- 	/*
+	/*
+	 * Fetch the current sample and update the timer's expiry time.
+	 */
+	if (CPUCLOCK_PERTHREAD(timer->it_clock))
+		now = cpu_clock_sample(clkid, p);
+	else
+		now = cpu_clock_sample_group(clkid, p, true);
+
+	bump_cpu_timer(timer, now);
+
+	/*
+	 * Now re-arm for the new expiry time.
+	 */
+	arm_timer(timer, p);
+	unlock_task_sighand(p, &flags);
+-out:
+-	rcu_read_unlock();
+ }
