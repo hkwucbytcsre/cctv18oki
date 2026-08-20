@@ -350,6 +350,31 @@ jobs:
             exit 1
           fi
 
+      - name: 应用 CVE-2026-64560 补丁
+        run: |
+          echo ">>> 应用 cve2026-64560.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/cve2026-64560.patch
+          patch -p1 -F 3 < cve2026-64560.patch
+          echo "✓ cve2026-64560.patch 补丁应用成功"
+      
+          # ===== 验证补丁是否生效 =====
+          echo ">>> 验证补丁应用结果..."
+          # 检查关键函数 timer_lock_sighand 是否存在（该函数为补丁新增）
+          if grep -q "static struct task_struct \*timer_lock_sighand" kernel/time/posix-cpu-timers.c; then
+            echo "✅ 补丁成功应用：检测到 timer_lock_sighand 函数"
+            echo "--- 修改后的 posix-cpu-timers.c 中 timer_lock_sighand 函数定义 ---"
+            grep -B 5 -A 20 "static struct task_struct \*timer_lock_sighand" kernel/time/posix-cpu-timers.c | cat
+            echo ""
+            echo "--- 修改后的 exit.c 中 smp_store_release 变更 ---"
+            grep -B 5 -A 5 "smp_store_release(&tsk->sighand, NULL)" kernel/exit.c | cat
+          else
+            echo "❌ 补丁未正确应用，未检测到 timer_lock_sighand"
+            echo "--- 当前 posix-cpu-timers.c 中是否存在相关代码 ---"
+            grep -E "timer_lock_sighand|smp_store_release" kernel/time/posix-cpu-timers.c kernel/exit.c || true
+            exit 1
+          fi
+
       - name: 添加KernelSU
         id: ksu_version
         run: |
