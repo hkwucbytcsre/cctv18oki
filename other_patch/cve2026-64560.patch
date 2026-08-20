@@ -129,7 +129,7 @@ index 1056422bc1013e..2c0b1c02920f46 100644
 @@ -212,7 +212,12 @@ static void __exit_signal(struct release_task_post *post, struct task_struct *ts
  	__unhash_process(post, tsk, group_dead);
  	write_sequnlock(&sig->stats_lock);
- 
+
 -	tsk->sighand = NULL;
 +	/*
 +	 * Ensure that all preceeding state is visible. Pairs with
@@ -138,7 +138,7 @@ index 1056422bc1013e..2c0b1c02920f46 100644
 +	 */
 +	smp_store_release(&tsk->sighand, NULL);
  	spin_unlock(&sighand->siglock);
- 
+
  	__cleanup_sighand(sighand);
 diff --git a/kernel/signal.c b/kernel/signal.c
 index 9c2b32c4d75532..bbc0fd4cc4d7c1 100644
@@ -159,7 +159,7 @@ index 9c2b32c4d75532..bbc0fd4cc4d7c1 100644
 +			smp_acquire__after_ctrl_dep();
  			break;
 +		}
- 
+
  		/*
  		 * This sighand can be already freed and even reused, but
 diff --git a/kernel/time/posix-cpu-timers.c b/kernel/time/posix-cpu-timers.c
@@ -169,7 +169,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 @@ -461,6 +461,109 @@ static void disarm_timer(struct k_itimer *timer, struct task_struct *p)
  		trigger_base_recalc_expires(timer, p);
  }
- 
+
 +/*
 + * Lookup the task via timer->it.cpu.pid and attempt to lock the task's sighand.
 + *
@@ -273,7 +273,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 +	WARN_ON_ONCE(ctmr->head || timerqueue_node_queued(&ctmr->node));
 +	return NULL;
 +}
- 
+
  /*
   * Clean up a CPU-clock timer that is about to be destroyed.
 @@ -470,29 +573,13 @@ static void disarm_timer(struct k_itimer *timer, struct task_struct *p)
@@ -285,13 +285,13 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	struct task_struct *p;
  	unsigned long flags;
  	int ret = 0;
- 
+
 -	rcu_read_lock();
 -	p = cpu_timer_task_rcu(timer);
 -	if (!p)
 -		goto out;
 +	p = timer_lock_sighand(timer, &flags);
- 
+
 -	/*
 -	 * Protect against sighand release/switch in exit/exec and process/
 -	 * thread timer list entry concurrent read/writes.
@@ -311,7 +311,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 @@ -501,11 +589,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
- 
+
 -out:
 -	rcu_read_unlock();
  	if (!ret) {
@@ -329,7 +329,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	struct task_struct *p;
  	unsigned long flags;
  	int ret = 0;
- 
+
 -	rcu_read_lock();
 -	p = cpu_timer_task_rcu(timer);
 -	if (!p) {
@@ -346,13 +346,13 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 +	if (!p)
  		return -ESRCH;
 -	}
- 
+
  	/*
  	 * Use the to_ktime conversion because that clamps the maximum
 @@ -648,20 +729,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
  	new_expires = ktime_to_ns(timespec64_to_ktime(new->it_value));
- 
+
 -	/*
 -	 * Protect against sighand release/switch in exit/exec and p->cpu_timers
 -	 * and p->signal->cpu_timers read/write in arm_timer()
@@ -369,7 +369,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -
  	/* Retrieve the current expiry time before disarming the timer */
  	old_expires = cpu_timer_getexpires(ctmr);
- 
+
 @@ -698,7 +765,7 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	/* Retry if the timer expiry is running concurrently */
  	if (unlikely(ret)) {
@@ -377,7 +377,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -		goto out;
 +		return ret;
  	}
- 
+
  	/* Convert relative expiry time to absolute */
 @@ -733,8 +800,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	 */
@@ -387,7 +387,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -	rcu_read_unlock();
  	return ret;
  }
- 
+
 @@ -1047,19 +1109,12 @@ static void check_process_timers(struct task_struct *tsk,
  static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
@@ -396,7 +396,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -	struct sighand_struct *sighand;
  	unsigned long flags;
  	u64 now;
- 
+
 -   rcu_read_lock();
 -   p = cpu_timer_task_rcu(timer);
 -   if (!p)
@@ -409,7 +409,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 +	p = timer_lock_sighand(timer, &flags);
 +	if (unlikely(!p))
 + 		return;
- 
+
 	/*
 	 * Fetch the current sample and update the timer's expiry time.
 	 */
