@@ -305,10 +305,8 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -		WARN_ON_ONCE(ctmr->head || timerqueue_node_queued(&ctmr->node));
 -	} else {
 +	if (likely(p)) {
- 		if (timer->it.cpu.firing) {
- 			/*
- 			 * Prevent signal delivery. The timer cannot be dequeued
-@@ -501,11 +589,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
+ 		if (timer->it.cpu.firing)
+@@ -508,11 +595,9 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
  
@@ -321,7 +319,9 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 + 		timer->it_status = POSIX_TIMER_DISARMED;
 +	}
  	return ret;
- }
+-}
+ 
+ static void cleanup_timerqueue(struct timerqueue_head *head)
 @@ -626,21 +711,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
  	struct cpu_timer *ctmr = &timer->it.cpu;
