@@ -308,19 +308,20 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  		if (timer->it.cpu.firing) {
 			ret = TIMER_RETRY;
 		else
-@@ -501,11 +588,8 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
+@@ -501,11 +589,11 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
  
 -out:
 -	rcu_read_unlock();
--
  	if (!ret) {
 -		put_pid(ctmr->pid);
+-
 +		put_pid(timer->it.cpu.pid);
- 		timer->it_status = POSIX_TIMER_DISARMED;
- 	}
++ 		timer->it_status = POSIX_TIMER_DISARMED;
++ 	}
  	return ret;
+ }
 @@ -626,21 +710,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
  	struct cpu_timer *ctmr = &timer->it.cpu;
