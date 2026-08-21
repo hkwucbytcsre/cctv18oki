@@ -324,8 +324,9 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  }
 @@ -626,21 +710,17 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
  	clockid_t clkid = CPUCLOCK_WHICH(timer->it_clock);
- 	struct cpu_timer *ctmr = &timer->it.cpu;
+- 	struct cpu_timer *ctmr = &timer->it.cpu;
  	u64 old_expires, new_expires, now;
++	struct cpu_timer *ctmr = &timer->it.cpu;
 -	struct sighand_struct *sighand;
  	struct task_struct *p;
  	unsigned long flags;
