@@ -308,7 +308,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  		if (timer->it.cpu.firing)
  			ret = TIMER_RETRY;
         else
-@@ -501,23 +588,22 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
+@@ -501,23 +588,21 @@ static int posix_cpu_timer_del(struct k_itimer *timer)
  		unlock_task_sighand(p, &flags);
  	}
  
@@ -319,7 +319,6 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -
 + 	if (!ret) {
 +		put_pid(timer->it.cpu.pid);
-+# 		timer->it_status = POSIX_TIMER_DISARMED;
 +	}
  	return ret;
  }
