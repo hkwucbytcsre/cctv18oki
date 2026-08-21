@@ -319,7 +319,7 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
 -
 + 	if (!ret) {
 +		put_pid(timer->it.cpu.pid);
-+ 		timer->it_status = POSIX_TIMER_DISARMED;
++# 		timer->it_status = POSIX_TIMER_DISARMED;
 +	}
  	return ret;
  }
@@ -394,15 +394,39 @@ index 5e633d8750d1f6..a7d3e8229c4ba4 100644
  	}
  
  	/* Convert relative expiry time to absolute */
-@@ -733,8 +799,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
- 	 */
- 	if (!sigev_none && new_expires && now >= new_expires)
- 		cpu_timer_fire(timer);
--out:
+@@ -757,32 +837,18 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int timer_flags,
+ 	if (val >= new_expires) {
+ 		if (new_expires != 0) {
+ 			/*
+ 			 * The designated time already passed, so we notify
+ 			 * immediately, even if the thread never runs to
+ 			 * accumulate more time on this clock.
+ 			 */
+ 			cpu_timer_fire(timer);
+ 		}
+ 
+-		/*
+-		 * Make sure we don't keep around the process wide cputime
+-		 * counter or the tick dependency if they are not necessary.
+-		 */
+-		sighand = lock_task_sighand(p, &flags);
+-		if (!sighand)
+-			goto out;
+-
+-		if (!cpu_timer_queued(ctmr))
+-			trigger_base_recalc_expires(timer, p);
+-
+-		unlock_task_sighand(p, &flags);
+ 	}
+- out:
 -	rcu_read_unlock();
+ 	if (old)
+ 		old->it_interval = ns_to_timespec64(old_incr);
+ 
  	return ret;
  }
- 
+
+ static void posix_cpu_timer_get(struct k_itimer *timer, struct itimerspec64 *itp)
 @@ -1018,37 +1085,28 @@ static void check_process_timers(struct task_struct *tsk,
  static void posix_cpu_timer_rearm(struct k_itimer *timer)
  {
