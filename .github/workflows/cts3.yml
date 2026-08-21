@@ -358,20 +358,66 @@ jobs:
           patch -p1 -F 3 < cve2026-64560.patch
           echo "✓ cve2026-64560.patch 补丁应用成功"
       
-          # ===== 验证补丁是否生效 =====
+          # ===== 验证补丁是否完整应用 =====
           echo ">>> 验证补丁应用结果..."
-          # 检查关键函数 timer_lock_sighand 是否存在（该函数为补丁新增）
+          PASS=0
+          FAIL=0
+          
+          # 1. 检查 timer_lock_sighand 函数是否存在
           if grep -q "static struct task_struct \*timer_lock_sighand" kernel/time/posix-cpu-timers.c; then
-            echo "✅ 补丁成功应用：检测到 timer_lock_sighand 函数"
-            echo "--- 修改后的 posix-cpu-timers.c 中 timer_lock_sighand 函数定义 ---"
-            grep -B 5 -A 20 "static struct task_struct \*timer_lock_sighand" kernel/time/posix-cpu-timers.c | cat
-            echo ""
-            echo "--- 修改后的 exit.c 中 smp_store_release 变更 ---"
-            grep -B 5 -A 5 "smp_store_release(&tsk->sighand, NULL)" kernel/exit.c | cat
+            echo "✅ [1/5] timer_lock_sighand 函数已添加"
+            PASS=$((PASS+1))
           else
-            echo "❌ 补丁未正确应用，未检测到 timer_lock_sighand"
-            echo "--- 当前 posix-cpu-timers.c 中是否存在相关代码 ---"
-            grep -E "timer_lock_sighand|smp_store_release" kernel/time/posix-cpu-timers.c kernel/exit.c || true
+            echo "❌ [1/5] timer_lock_sighand 函数未找到"
+            FAIL=$((FAIL+1))
+          fi
+          
+          # 2. 检查 posix_cpu_timer_set 中 arm_timer 决策点是否包含 trigger_base_recalc_expires else 分支
+          if grep -A 5 "if (new_expires != 0 && val < new_expires)" kernel/time/posix-cpu-timers.c | grep -q "trigger_base_recalc_expires"; then
+            echo "✅ [2/5] posix_cpu_timer_set 中 trigger_base_recalc_expires 前移正确"
+            PASS=$((PASS+1))
+          else
+            echo "❌ [2/5] posix_cpu_timer_set 中 trigger_base_recalc_expires 前移未找到"
+            FAIL=$((FAIL+1))
+          fi
+          
+          # 3. 检查 run_posix_cpu_timers 中是否包含 exit_state 检查
+          if grep -A 10 "void run_posix_cpu_timers(void)" kernel/time/posix-cpu-timers.c | grep -q "if (tsk->exit_state)"; then
+            echo "✅ [3/5] run_posix_cpu_timers 中 exit_state 检查已添加"
+            PASS=$((PASS+1))
+          else
+            echo "❌ [3/5] run_posix_cpu_timers 中 exit_state 检查未找到"
+            FAIL=$((FAIL+1))
+          fi
+          
+          # 4. 检查 handle_posix_cpu_timers 是否使用 spin_lock_irqsave（而非 lock_task_sighand）
+          if grep -A 5 "static void handle_posix_cpu_timers" kernel/time/posix-cpu-timers.c | grep -q "spin_lock_irqsave"; then
+            echo "✅ [4/5] handle_posix_cpu_timers 使用 spin_lock_irqsave"
+            PASS=$((PASS+1))
+          else
+            echo "❌ [4/5] handle_posix_cpu_timers 未使用 spin_lock_irqsave"
+            FAIL=$((FAIL+1))
+          fi
+          
+          # 5. 检查 exit.c 中的 smp_store_release
+          if grep -q "smp_store_release(&tsk->sighand, NULL)" kernel/exit.c; then
+            echo "✅ [5/5] exit.c 中 smp_store_release 已添加"
+            PASS=$((PASS+1))
+          else
+            echo "❌ [5/5] exit.c 中 smp_store_release 未找到"
+            FAIL=$((FAIL+1))
+          fi
+          
+          echo ""
+          if [ $FAIL -eq 0 ]; then
+            echo "✅ 所有关键补丁检测通过（$PASS/5）"
+            echo "--- 显示 timer_lock_sighand 函数定义（前5行和后20行） ---"
+            grep -B 5 -A 20 "static struct task_struct \*timer_lock_sighand" kernel/time/posix-cpu-timers.c | cat
+            exit 0
+          else
+            echo "❌ 有 $FAIL 项检测未通过，补丁不完整"
+            echo "--- 当前相关代码片段（供调试） ---"
+            grep -E "timer_lock_sighand|trigger_base_recalc_expires|exit_state|spin_lock_irqsave|smp_store_release" kernel/time/posix-cpu-timers.c kernel/exit.c || true
             exit 1
           fi
 
