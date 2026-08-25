@@ -626,7 +626,7 @@ jobs:
                   printf '$(obj)/config_data: $(KCONFIG_CONFIG) FORCE\n'
                   printf '\t$(Q)sed $(foreach opt,$(CONFIG_FAKE_DISABLE),-e '"'"'s|^$(opt)=.*|# $(opt) is not set|'"'"') $(KCONFIG_CONFIG) > $@\n'
                   printf 'endif\n'
-                } >> ../kernel/Makefile
+                } >> ../Makefile
               fi
               echo "CONFIG_FAKE_DISABLE=${HIDE_CONFIGS[*]}" >> $GITHUB_ENV
             }
