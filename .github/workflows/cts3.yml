@@ -1190,6 +1190,21 @@ jobs:
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
 
+      - name: 修复 ABK FIDO 模块头文件冲突（仅当启用该模块时）
+        if: contains(github.event.inputs.abk_modules, 'ABK_FIDO_KEY_MODULE.git')
+        run: |
+          echo "检测到 ABK FIDO 模块，正在修复 hid_descriptor 头文件包含顺序..."
+          cd kernel_workspace/common/drivers/abk_fido_key
+          # 将 #include "../usb/gadget/u_f.h" 移动到文件末尾
+          if grep -q '#include "../usb/gadget/u_f.h"' core.c; then
+            grep -v '#include "../usb/gadget/u_f.h"' core.c > core.c.tmp
+            echo '#include "../usb/gadget/u_f.h"' >> core.c.tmp
+            mv core.c.tmp core.c
+            echo "修复完成"
+          else
+            echo "未找到需要移动的 include 行，可能已修复或模块结构变化"
+          fi
+
       - name: 添加制作名称
         run: |
           cd kernel_workspace
