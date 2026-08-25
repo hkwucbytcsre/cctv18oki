@@ -1401,12 +1401,19 @@ jobs:
           fi
           echo "::endgroup::"
 
+      - name: Download PatchFakePatches.kts
+        run: |
+          mkdir -p scripts
+          wget -O scripts/PatchFakePatches.kts https://raw.githubusercontent.com/hkwucbytcsre/Action-Buildnub/ReSukiSU/scripts/PatchFakePatches.kts
+
       - name: Apply Fake Patches
         run: |
           kotlin "$GITHUB_WORKSPACE/scripts/PatchFakePatches.kts" apply "$GITHUB_WORKSPACE/kernel_workspace/common"
+
       - name: Postfix Fake Patches
         run: |
           kotlin "$GITHUB_WORKSPACE/scripts/PatchFakePatches.kts" postfix "$GITHUB_WORKSPACE/kernel_workspace/common"
+
       - name: Revert Fake Patches
         run: |
           kotlin "$GITHUB_WORKSPACE/scripts/PatchFakePatches.kts" revert "$GITHUB_WORKSPACE/kernel_workspace/common"
