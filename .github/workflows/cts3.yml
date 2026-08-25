@@ -47,6 +47,11 @@ on:
         required: true
         type: boolean
         default: 'true'
+      susfs_repo_url:
+        description: '自定义 SUSFS 补丁仓库地址（格式：仓库URL#分支；留空则使用默认的 cctv18 仓库）'
+        required: false
+        type: string
+        default: 'https://github.com/ShirkNeko/susfs4ksu#gki-android15-6.6'
       kpm_enable:
         description: '是否开启kpm(使用KpatchNext独立实现kpm(支持任意KSU/面具环境); 不需要可保持默认关闭)'
         required: true
@@ -126,11 +131,11 @@ on:
         required: false
         type: string
         default: ''
-      abk_ddk_enable:
-        description: '是否集成 Xingguang-DDK LSM（实验性））'
-        required: true
-        type: boolean
-        default: 'false'
+    # abk_ddk_enable:
+    #   description: '是否集成 Xingguang-DDK LSM（实验性））'
+    #   required: true
+    #   type: boolean
+    #   default: 'false'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
@@ -433,7 +438,28 @@ jobs:
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
             echo "正在添加susfs补丁..."
-            git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            
+            # 获取用户输入的仓库地址
+            CUSTOM_SUSFS_REPO="${{ github.event.inputs.susfs_repo_url }}"
+            
+            # 如果用户输入了自定义地址，则使用它；否则使用原有的默认仓库
+            if [ -n "$CUSTOM_SUSFS_REPO" ]; then
+              # 解析自定义地址（格式：仓库URL#分支）
+              REPO_URL=$(echo "$CUSTOM_SUSFS_REPO" | cut -d'#' -f1)
+              BRANCH=$(echo "$CUSTOM_SUSFS_REPO" | cut -d'#' -f2)
+              # 如果未指定分支，默认使用 main
+              if [ -z "$BRANCH" ]; then
+                BRANCH="main"
+              fi
+              echo "使用自定义 SUSFS 仓库: $REPO_URL (分支: $BRANCH)"
+              git clone --depth=1 -b "$BRANCH" "$REPO_URL" susfs4ksu
+            else
+              # 使用工作流中原本硬编码的默认仓库地址
+              echo "使用默认 SUSFS 仓库: https://github.com/cctv18/susfs4oki"
+              git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            fi
+            
+            # 以下所有原有的 wget、cp 和 patch 命令完全保持不变
             wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
             cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
@@ -445,6 +471,7 @@ jobs:
           else
             echo "已选择无内置KernelSU模式，跳过susfs配置..."
           fi
+          # 以下处理原版KSU补丁的逻辑保持不变...
           if [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
             echo "正在为原版 KernelSU (tiann/KernelSU)添加补丁..."
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
@@ -787,7 +814,7 @@ jobs:
                 sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       - name: 应用 Xingguang-DDK LSM（实验性）
-        if: inputs.abk_ddk_enable
+        if: false    #inputs.abk_ddk_enable
         run: |
           set -e
       
@@ -1065,7 +1092,7 @@ jobs:
           ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
           ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
+          ABK_FEATURE_DDK: "false"  #${{ github.event.inputs.abk_ddk_enable }}
           ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
         run: |
           set -euo pipefail
@@ -1158,7 +1185,7 @@ jobs:
           ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
           ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
+          ABK_FEATURE_DDK: "false"  #${{ github.event.inputs.abk_ddk_enable }}
           ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
         run: |
           set -euo pipefail
@@ -1573,7 +1600,7 @@ jobs:
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
           - 基带保护补丁来源：${{ github.event.inputs.bbg_source == 'vc-teahouse' && 'vc-teahouse' || 'cctv18' }}
-          - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable }}（实验性）
+          - ABK DDK (Xingguang-DDK LSM)："false" #${{ github.event.inputs.abk_ddk_enable }}（实验性）
           - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass }}
           - ABK 外部模块：${{ github.event.inputs.abk_modules }}
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
