@@ -51,7 +51,7 @@ on:
         description: '自定义 SUSFS 补丁仓库地址（格式：仓库URL#分支；留空则使用默认的 cctv18 仓库）'
         required: false
         type: string
-        default: 'https://github.com/ShirkNeko/susfs4ksu#gki-android15-6.6'
+        default: ''
       kpm_enable:
         description: '是否开启kpm(使用KpatchNext独立实现kpm(支持任意KSU/面具环境); 不需要可保持默认关闭)'
         required: true
