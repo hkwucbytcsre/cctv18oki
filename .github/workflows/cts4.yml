@@ -131,21 +131,21 @@ on:
         required: false
         type: string
         default: ''
-    # abk_ddk_enable:
-    #   description: '是否集成 Xingguang-DDK LSM（实验性））'
-    #   required: true
-    #   type: boolean
-    #   default: 'false'
+      abk_ddk_enable:
+        description: '是否集成 Xingguang-DDK LSM（实验性））'
+        required: true
+        type: boolean
+        default: 'false'
       ccache_update:
         description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
         required: true
         type: boolean
         default: 'false'
-      unicode_bypass:
-        type: boolean
-        description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
-        required: true
-        default: 'false'
+     # unicode_bypass:
+     #   type: boolean
+     #   description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
+     #   required: true
+     #   default: 'false'
       ccache_debug:
         description: '是否上传 Ccache调试日志(用于调试, 无需要不必开启)'
         required: true
@@ -905,7 +905,7 @@ jobs:
                 sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
 
       - name: 应用 Xingguang-DDK LSM（实验性）
-        if: false    #inputs.abk_ddk_enable
+        if: inputs.abk_ddk_enable
         run: |
           set -e
       
@@ -928,12 +928,12 @@ jobs:
           bash "$GITHUB_WORKSPACE/ddk/setup.sh"
       
           # 3. 验证补丁头文件
-          test -f "$GKI_ROOT/common/include/linux/xingguang_ddk.h"
+          test -f "$GKI_ROOT/common/include/linux/alice_ddk.h"
       
           # 4. 幂等追加配置
-          grep -q '^CONFIG_XINGGUANG_DDK=y$' "$DEFCONFIG" || echo "CONFIG_XINGGUANG_DDK=y" >> "$DEFCONFIG"
+          grep -q '^CONFIG_ALICE_DDK=y$' "$DEFCONFIG" || echo "CONFIG_ALICE_DDK=y" >> "$DEFCONFIG"
       
-          echo "✅ ABK DDK (Xingguang-DDK LSM) 集成完成。"
+          echo "✅ ABK DDK (Alice-DDK LSM) 集成完成。"
 
       # ==================== 新增：解析并克隆 ABK 模块（生成清单） ====================
       - name: 解析并克隆 ABK 模块
@@ -1183,8 +1183,8 @@ jobs:
           ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
           ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: "false"  #${{ github.event.inputs.abk_ddk_enable }}
-          ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
+          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
+          ABK_FEATURE_UNICODE_BYPASS: "false"  #${{ github.event.inputs.unicode_bypass }}
         run: |
           set -euo pipefail
           cd kernel_workspace
@@ -1276,8 +1276,8 @@ jobs:
           ABK_FEATURE_ADIOS: ${{ github.event.inputs.adios_enable }}
           ABK_FEATURE_REKERNEL: ${{ github.event.inputs.rekernel_enable }}
           ABK_FEATURE_BBG: ${{ github.event.inputs.baseband_guard }}
-          ABK_FEATURE_DDK: "false"  #${{ github.event.inputs.abk_ddk_enable }}
-          ABK_FEATURE_UNICODE_BYPASS: ${{ github.event.inputs.unicode_bypass }}
+          ABK_FEATURE_DDK: ${{ github.event.inputs.abk_ddk_enable }}
+          ABK_FEATURE_UNICODE_BYPASS: "false"  #${{ github.event.inputs.unicode_bypass }}
         run: |
           set -euo pipefail
           cd kernel_workspace
@@ -1708,8 +1708,8 @@ jobs:
           - Re-Kernel支持：${{ github.event.inputs.rekernel_enable }}
           - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
           - 基带保护补丁来源：${{ github.event.inputs.bbg_source == 'vc-teahouse' && 'vc-teahouse' || 'cctv18' }}
-          - ABK DDK (Xingguang-DDK LSM)："false" #${{ github.event.inputs.abk_ddk_enable }}（实验性）
-          - Unicode 绕过漏洞修复：${{ github.event.inputs.unicode_bypass }}
+          - ABK DDK (Xingguang-DDK LSM)：${{ github.event.inputs.abk_ddk_enable }}（实验性）
+          - Unicode 绕过漏洞修复："false" #${{ github.event.inputs.unicode_bypass }}
           - ABK 外部模块：${{ github.event.inputs.abk_modules }}
           - ReSukiSU管理器下载：[ReSukiSU_CI](https://github.com/cctv18/ReSukiSU_CI/releases)
           - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
