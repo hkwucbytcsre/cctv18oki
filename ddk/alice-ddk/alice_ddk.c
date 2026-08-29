@@ -629,8 +629,7 @@ static bool xg_exec_guard_applies(void)
         return false;
     if (READ_ONCE(xg_watchdog_tripped))
         return true;
-	return xg_exec_guard_all_uid ||
-	       xg_current_is_privileged_dynamic_subject();
+    return xg_exec_guard_all_uid || xg_current_is_privileged_dynamic_subject();
 }
 
 static void xg_record_exec_identity(struct xg_trusted_exec_identity *identity,
@@ -3062,8 +3061,8 @@ static ssize_t xg_config_show(struct kobject *kobj,
         "block_gzexe_exec=%d\n"
         "block_packed_elf_exec=%d\n"
         "block_shell_writable_scripts=%d\n"
-        "watchdog_respect_user=%d\n",
-		"enabled=%d\n",   // 新增
+        "watchdog_respect_user=%d\n"
+        "enabled=%d\n",
         READ_ONCE(xg_block_setenforce),
         READ_ONCE(xg_exec_guard_all_uid),
         READ_ONCE(xg_strict_shell_exec_guard),
@@ -3071,8 +3070,8 @@ static ssize_t xg_config_show(struct kobject *kobj,
         READ_ONCE(xg_block_gzexe_exec),
         READ_ONCE(xg_block_packed_elf_exec),
         READ_ONCE(xg_block_shell_writable_scripts),
-		READ_ONCE(xg_watchdog_respect_user),
-    	READ_ONCE(xg_global_enabled)
+        READ_ONCE(xg_watchdog_respect_user),
+        READ_ONCE(xg_global_enabled)
     );
 }
 
