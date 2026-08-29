@@ -3186,13 +3186,13 @@ static void xg_watchdog_restore_bool(bool *value, const char *name)
 
     unsigned long last_user = READ_ONCE(xg_user_config_jiffies);
     unsigned long now = jiffies;
-    bool current = READ_ONCE(*value);
+    bool cur_val = READ_ONCE(*value);
 
     if (xg_watchdog_respect_user &&
         time_before(now, last_user + msecs_to_jiffies(300000)))
         return;
 
-    if (current)
+    if (cur_val)
         return;
 
     xg_watchdog_report("guard parameter", name, "disabled");
