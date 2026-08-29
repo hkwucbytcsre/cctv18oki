@@ -3,9 +3,9 @@ set -eu
 
 GKI_ROOT="$(pwd)"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-SRC_DIR="$SCRIPT_DIR/xingguang-ddk"
-PATCH_DIR="$SCRIPT_DIR/patches/xingguang-ddk"
-DDK_DIR="$GKI_ROOT/Xingguang-DDK"
+SRC_DIR="$SCRIPT_DIR/alice-ddk"
+PATCH_DIR="$SCRIPT_DIR/patches/alice-ddk"
+DDK_DIR="$GKI_ROOT/Alice-DDK"
 
 if [ -d "$GKI_ROOT/security" ]; then
 	COMMON_ROOT="$GKI_ROOT"
@@ -20,7 +20,7 @@ fi
 
 SECURITY_MAKEFILE="$SECURITY_DIR/Makefile"
 SECURITY_KCONFIG="$SECURITY_DIR/Kconfig"
-DDK_SYMLINK="$SECURITY_DIR/xingguang-ddk"
+DDK_SYMLINK="$SECURITY_DIR/alice-ddk"
 
 if [ ! -d "$SRC_DIR" ]; then
 	echo "[ERROR] DDK source directory not found: $SRC_DIR"
@@ -288,7 +288,7 @@ PY
 
 ensure_ddk_include() {
 	file="$1"
-	include='#include <linux/xingguang_ddk.h>'
+	include='#include <linux/alice_ddk.h>'
 
 	if [ ! -f "$file" ]; then
 		echo "[ERROR] DDK target file not found: $file"
@@ -305,12 +305,12 @@ ensure_ddk_include() {
 	fi
 
 	sed -i '/^#include "blk.h"$/a\
-#include <linux/xingguang_ddk.h>' "$file"
+#include <linux/alice_ddk.h>' "$file"
 }
 
 ensure_ddk_include_after_includes() {
 	file="$1"
-	include='#include <linux/xingguang_ddk.h>'
+	include='#include <linux/alice_ddk.h>'
 
 	if [ ! -f "$file" ]; then
 		echo "[ERROR] DDK target file not found: $file"
@@ -614,10 +614,10 @@ PY
 	function_has_call_name "$dm_table_file" "dm_table_add_target" "xg_ddk_dm_target_add(" || return 1
 }
 
-echo "[+] Setting up Xingguang DDK LSM"
+echo "[+] Setting up Alice DDK LSM"
 
 if [ -d "$PATCH_DIR" ]; then
-	echo "[+] Applying Xingguang DDK patch stack"
+	echo "[+] Applying Alice DDK patch stack"
 	for patch in "$PATCH_DIR"/*.patch; do
 		[ -e "$patch" ] || continue
 		patch_name="$(basename "$patch")"
@@ -659,12 +659,12 @@ fi
 [ -n "$rel" ] || rel="$DDK_DIR"
 ln -sfn "$rel" "$DDK_SYMLINK"
 
-if ! grep -q 'xingguang-ddk' "$SECURITY_MAKEFILE"; then
-	printf '\nobj-$(CONFIG_XINGGUANG_DDK) += xingguang-ddk/\n' >> "$SECURITY_MAKEFILE"
+if ! grep -q 'alice-ddk' "$SECURITY_MAKEFILE"; then
+	printf '\nobj-$(CONFIG_ALICE_DDK) += alice-ddk/\n' >> "$SECURITY_MAKEFILE"
 	echo " - Makefile updated"
 fi
 
-if ! grep -q 'security/xingguang-ddk/Kconfig' "$SECURITY_KCONFIG"; then
+if ! grep -q 'security/alice-ddk/Kconfig' "$SECURITY_KCONFIG"; then
 	if grep -n '^endmenu[[:space:]]*$' "$SECURITY_KCONFIG" >/dev/null 2>&1; then
 		awk '
 			{ a[NR]=$0 }
@@ -672,17 +672,17 @@ if ! grep -q 'security/xingguang-ddk/Kconfig' "$SECURITY_KCONFIG"; then
 				last=0
 				for (i=1; i<=NR; i++) if (a[i] ~ /^endmenu[[:space:]]*$/) last=i
 				for (i=1; i<=NR; i++) {
-					if (i==last) print "source \"security/xingguang-ddk/Kconfig\""
+					if (i==last) print "source \"security/alice-ddk/Kconfig\""
 					print a[i]
 				}
 			}
 		' "$SECURITY_KCONFIG" > "$SECURITY_KCONFIG.tmp" && mv "$SECURITY_KCONFIG.tmp" "$SECURITY_KCONFIG"
 	else
-		printf '\nsource "security/xingguang-ddk/Kconfig"\n' >> "$SECURITY_KCONFIG"
+		printf '\nsource "security/alice-ddk/Kconfig"\n' >> "$SECURITY_KCONFIG"
 	fi
 	echo " - Kconfig updated"
 fi
 
-sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /xingguang_ddk/! s/selinux/selinux,xingguang_ddk/ } }' "$SECURITY_KCONFIG"
+sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /alice_ddk/! s/selinux/selinux,alice_ddk/ } }' "$SECURITY_KCONFIG"
 
-echo "[+] Xingguang DDK LSM ready."
+echo "[+] Alice DDK LSM ready."
