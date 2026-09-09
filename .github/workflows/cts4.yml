@@ -380,6 +380,14 @@ jobs:
             exit 1
           fi
 
+      - name: 应用 CVE-2026-43284 补丁
+        run: |
+          echo ">>> 应用 cve2026-43284.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/2026-43284.patch
+          patch -p1 -F 3 < 2026-43284.patch
+          echo "✓ cve2026-43284.patch 补丁应用成功"
+
       - name: 添加KernelSU
         id: ksu_version
         run: |
