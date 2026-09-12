@@ -1316,49 +1316,6 @@ jobs:
             ) || { echo "::error::模块 $repo_url 执行失败"; exit 1; }
           done < "$MANIFEST"
 
-      - name: 为 ABK FIDO 模块注入正确的 hid_descriptor 定义
-        if: contains(github.event.inputs.abk_modules, 'ABK_FIDO_KEY_MODULE.git')
-        run: |
-          cd kernel_workspace/common/drivers/abk_fido_key
-      
-          # 检测是否已修复（避免重复执行）
-          if grep -q "abk_fido_hid_desc_override" core.c; then
-            echo "自定义定义已存在，跳过修复"
-            exit 0
-          fi
-      
-          # 获取最后一个 #include 的行号
-          last_include=$(grep -n '^#include' core.c | tail -1 | cut -d: -f1)
-          if [ -z "$last_include" ]; then
-            echo "未找到 #include 行，无法定位插入点"
-            exit 1
-          fi
-      
-          # 分割文件
-          head -n "$last_include" core.c > core.c.head
-          tail -n +$((last_include + 1)) core.c > core.c.tail
-      
-          # 在头部末尾插入自定义定义（包含宏，且不取消）
-          cat >> core.c.head << 'EOF'
-      
-          /* ABK FIDO 自定义 hid_descriptor（含 desc 成员） */
-          #define hid_descriptor abk_fido_hid_desc_override
-          struct abk_fido_hid_desc_override {
-              __u8  bLength;
-              __u8  bDescriptorType;
-              __le16 bcdHID;
-              __u8  bCountryCode;
-              __u8  bNumDescriptors;
-              struct hid_class_descriptor desc[1];
-          } __attribute__ ((packed));
-          EOF
-      
-          # 合并回 core.c
-          cat core.c.head core.c.tail > core.c.new
-          mv core.c.new core.c
-      
-          echo "自定义定义已插入到最后一个 #include 之后"
-
       - name: 添加制作名称
         run: |
           cd kernel_workspace
