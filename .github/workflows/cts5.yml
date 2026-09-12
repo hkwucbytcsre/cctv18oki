@@ -1091,10 +1091,25 @@ jobs:
           echo "ABK_MANIFEST_PATH=$(pwd)/$MANIFEST" >> $GITHUB_ENV
 
       # ==================== 生成 ABK 刷写依赖信息 ====================
+      # 设计原则：
+      #   1. module.conf 中的所有键值对原样透传到 metadata（不做任何前缀过滤）
+      #   2. 系统级信息（内核版本、Android 版本、KSU 变体等）按硬编码方式附加为顶层字段
+      #   3. 依赖项、伴侣 App、扩展元数据均携带完整 metadata
       - name: 生成 ABK 刷写依赖信息
         if: github.event.inputs.abk_modules != ''
         env:
           ABK_MANIFEST: ${{ env.ABK_MANIFEST_PATH }}
+          ABK_SYS_ANDROID_VERSION: ${{ env.ANDROID_VERSION }}
+          ABK_SYS_KERNEL_VERSION: ${{ env.KERNEL_VERSION }}
+          ABK_SYS_SUB_VERSION: ${{ env.SUB_VERSION }}
+          ABK_SYS_KERNEL_NAME: ${{ env.KERNEL_NAME }}
+          ABK_SYS_KSU_VARIANT: ${{ github.event.inputs.ksu_type }}
+          ABK_SYS_KSU_VER: ${{ env.KSUVER }}
+          ABK_SYS_BUILD_TIME: ${{ github.event.inputs.build_time }}
+          ABK_SYS_BUILD_REPO: ${{ github.repository }}
+          ABK_SYS_BUILD_BRANCH: ${{ github.ref_name }}
+          ABK_SYS_RUN_ID: ${{ github.run_id }}
+          ABK_SYS_COMMIT: ${{ github.sha }}
         run: |
           cd kernel_workspace
           python3 - <<'PY'
@@ -1106,12 +1121,30 @@ jobs:
               print("无 ABK 模块清单，跳过依赖生成")
               exit(0)
 
+          # ========== 系统级硬编码信息（模块不提供的通用字段） ==========
+          system_info = {
+              "androidVersion": os.environ.get("ABK_SYS_ANDROID_VERSION", ""),
+              "kernelVersion": os.environ.get("ABK_SYS_KERNEL_VERSION", ""),
+              "subVersion": os.environ.get("ABK_SYS_SUB_VERSION", ""),
+              "kernelName": os.environ.get("ABK_SYS_KERNEL_NAME", ""),
+              "ksuVariant": os.environ.get("ABK_SYS_KSU_VARIANT", ""),
+              "ksuVersion": os.environ.get("ABK_SYS_KSU_VER", ""),
+              "buildTime": os.environ.get("ABK_SYS_BUILD_TIME", ""),
+              "buildRepo": os.environ.get("ABK_SYS_BUILD_REPO", ""),
+              "buildBranch": os.environ.get("ABK_SYS_BUILD_BRANCH", ""),
+              "runId": os.environ.get("ABK_SYS_RUN_ID", ""),
+              "commit": os.environ.get("ABK_SYS_COMMIT", ""),
+          }
+
           dependencies = []
           companion_apps = []
+          extensions = []
           seen_urls = set()
           seen_companion_urls = set()
+          seen_extension_ids = set()
 
           def parse_shell_conf(text):
+              """解析 shell 风格的 KEY="value" 配置，支持多行值。"""
               result = {}
               lines = text.splitlines()
               i = 0
@@ -1160,6 +1193,9 @@ jobs:
                   })
               return items
 
+          def to_bool(val):
+              return str(val).strip().lower() in {"1", "y", "yes", "true", "on"}
+
           with open(manifest_path, 'r') as f:
               for line in f:
                   parts = line.strip().split('\t')
@@ -1175,15 +1211,21 @@ jobs:
                       continue
                   conf = parse_shell_conf(conf_path.read_text(encoding='utf-8'))
 
+                  # ============================================================
+                  # 核心：完整透传 module.conf 中的所有键值对，不做任何前缀过滤
+                  # ============================================================
+                  module_metadata = dict(conf)
+
+                  # 仅用于内部逻辑判断（metadata 已完整保留）
+                  module_id = conf.get("ABK_MODULE_ID", "").strip()
+                  module_name = conf.get("ABK_MODULE_NAME", "").strip()
+                  module_repo_url = conf.get("ABK_MODULE_REPO_URL", "").strip()
+
+                  # ---- 依赖项（Magisk 模块） ----
                   dep_name = ""
                   dep_url = ""
-                  source_name = conf.get("ABK_MODULE_NAME", "").strip()
-                  source_id = conf.get("ABK_MODULE_ID", "").strip()
-
-                  # 读取阶段元数据
-                  supported_stages = conf.get("ABK_MODULE_SUPPORTED_STAGES", "").strip()
-                  default_stage = conf.get("ABK_MODULE_DEFAULT_STAGE", "").strip()
-                  recommended_stages = conf.get("ABK_MODULE_RECOMMENDED_STAGES", "").strip()
+                  source_name = module_name
+                  source_id = module_id
 
                   if kind == "set" and child_id:
                       items = parse_module_set_items(conf.get("ABK_MODULE_SET_ITEMS", ""))
@@ -1197,55 +1239,71 @@ jobs:
                       dep_name = conf.get("ABK_MAGISK_MODULE_NAME", "").strip()
                       dep_url = conf.get("ABK_MAGISK_MODULE_DOWNLOAD_URL", "").strip()
 
-                  # Companion app
-                  companion_pkg = conf.get("ABK_EXTENSION_COMPANION_PACKAGE", "").strip()
-                  companion_name = conf.get("ABK_EXTENSION_COMPANION_DISPLAY_NAME", "").strip() or source_name
-                  companion_asset = conf.get("ABK_EXTENSION_COMPANION_ASSET_NAME", "").strip()
+                  if dep_url:
+                      key = dep_url.lower()
+                      if key not in seen_urls:
+                          seen_urls.add(key)
+                          dependencies.append({
+                              "id": source_id,
+                              "name": dep_name or source_name or "magisk-module",
+                              "downloadUrl": dep_url,
+                              "moduleRepoUrl": module_repo_url or repo_url,
+                              "groupRepoUrl": group_url,
+                              "childId": child_id,
+                              "executedStage": stage,
+                              # 完整透传 module.conf 中的所有键值对
+                              "metadata": module_metadata,
+                          })
+
+                  # ---- 伴侣 App ----
                   companion_url = conf.get("ABK_EXTENSION_COMPANION_DOWNLOAD_URL", "").strip()
-                  requires_companion = conf.get("ABK_EXTENSION_REQUIRES_COMPANION_APP", "").strip().lower() in {"1","y","yes","true","on"}
+                  requires_companion = to_bool(conf.get("ABK_EXTENSION_REQUIRES_COMPANION_APP", ""))
                   if requires_companion and companion_url:
                       key = companion_url.lower()
                       if key not in seen_companion_urls:
                           seen_companion_urls.add(key)
                           companion_apps.append({
                               "extensionId": conf.get("ABK_EXTENSION_ID", "").strip(),
-                              "packageName": companion_pkg,
-                              "displayName": companion_name,
-                              "assetName": companion_asset,
+                              "packageName": conf.get("ABK_EXTENSION_COMPANION_PACKAGE", "").strip(),
+                              "displayName": conf.get("ABK_EXTENSION_COMPANION_DISPLAY_NAME", "").strip() or source_name,
+                              "assetName": conf.get("ABK_EXTENSION_COMPANION_ASSET_NAME", "").strip(),
                               "downloadUrl": companion_url,
                               "moduleId": source_id,
                               "moduleName": source_name,
-                              "moduleRepoUrl": repo_url,
+                              "moduleRepoUrl": module_repo_url or repo_url,
+                              # 完整透传 module.conf 中的所有键值对
+                              "metadata": module_metadata,
                           })
 
-                  if not dep_url:
-                      continue
-                  key = dep_url.lower()
-                  if key in seen_urls:
-                      continue
-                  seen_urls.add(key)
-                  dependencies.append({
-                      "id": source_id,
-                      "name": dep_name or source_name or "magisk-module",
-                      "downloadUrl": dep_url,
-                      "moduleRepoUrl": repo_url,
-                      "groupRepoUrl": group_url,
-                      "childId": child_id,
-                      "sourceName": source_name,
-                      "executedStage": stage,
-                      "supportedStages": [s.strip() for s in supported_stages.split(',') if s.strip()],
-                      "defaultStage": default_stage,
-                      "recommendedStages": [s.strip() for s in recommended_stages.split(',') if s.strip()],
-                  })
+                  # ---- 扩展元数据 ----
+                  ext_id = conf.get("ABK_EXTENSION_ID", "").strip()
+                  if ext_id and ext_id not in seen_extension_ids:
+                      seen_extension_ids.add(ext_id)
+                      extensions.append({
+                          "extensionId": ext_id,
+                          # 完整透传 module.conf 中的所有键值对
+                          "metadata": module_metadata,
+                      })
 
           output_path = Path("ABK_FLASH_DEPENDENCIES.json")
-          if dependencies or companion_apps:
+          if dependencies or companion_apps or extensions:
               output_path.write_text(
-                  json.dumps({"schema": 2, "magiskModules": dependencies, "companionApps": companion_apps},
-                             ensure_ascii=False, indent=2),
+                  json.dumps({
+                      "schema": 4,
+                      # 系统级硬编码信息（模块不提供的通用字段）
+                      "systemInfo": system_info,
+                      # 模块动态透传内容
+                      "magiskModules": dependencies,
+                      "companionApps": companion_apps,
+                      "extensions": extensions,
+                  }, ensure_ascii=False, indent=2),
                   encoding='utf-8'
               )
-              print(f"生成依赖文件: {output_path}，含 {len(dependencies)} 个 Magisk 模块和 {len(companion_apps)} 个伴侣 App")
+              print(f"生成依赖文件: {output_path}")
+              print(f"  - Magisk 模块: {len(dependencies)}")
+              print(f"  - 伴侣 App: {len(companion_apps)}")
+              print(f"  - 扩展: {len(extensions)}")
+              print(f"  - 系统信息: kernel={system_info['kernelVersion']}.{system_info['subVersion']}, android={system_info['androidVersion']}, ksu={system_info['ksuVariant']}@{system_info['ksuVersion']}")
           elif output_path.exists():
               output_path.unlink()
           PY
