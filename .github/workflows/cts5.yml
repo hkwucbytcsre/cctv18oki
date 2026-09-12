@@ -1,4 +1,4 @@
-name: test3 欧加真OKI内核快速构建
+name: test2 欧加真OKI内核快速构建
 
 env:
   TZ: Asia/Shanghai
@@ -127,7 +127,7 @@ on:
           - 'cctv18'
           - 'vc-teahouse'
       abk_modules:
-        description: 'ABK外部模块（格式：url;stage，多个用|分隔，支持#branch；stage可留空由 module.conf 自动决定）'
+        description: 'ABK外部模块（格式：url;stage，多个用|分隔，支持#branch；stage可留空由 module.conf 自动决定，多阶段模块推荐留空以自动展开）'
         required: false
         type: string
         default: ''
@@ -944,12 +944,11 @@ jobs:
           echo "✅ ABK DDK (Alice-DDK LSM) 集成完成。"
 
       # ==================== 解析并克隆 ABK 模块（生成清单） ====================
-      # 改动说明：
-      #   1. 支持用户输入 "url;stage" 或 "url"（stage 可省略，由 module.conf 决定）
-      #   2. 克隆后解析 module.conf 中的 ABK_MODULE_SUPPORTED_STAGES / ABK_MODULE_DEFAULT_STAGE
-      #   3. 若用户指定 stage → 校验是否在 SUPPORTED_STAGES 中
-      #      若用户未指定 stage → 使用 DEFAULT_STAGE 作为执行阶段
-      #   4. 支持 module: 前缀与 set: 前缀（模块集）的现有逻辑保持不变
+      # 关键修复：
+      #   1. 同一仓库被多个阶段引用时，每次复制前先 rm -rf 目标，避免 cp -r 嵌套
+      #   2. 未指定 stage 时优先展开 ABK_MODULE_RECOMMENDED_STAGES 中的全部阶段
+      #   3. 未指定 stage 且无 RECOMMENDED_STAGES 时回退到 DEFAULT_STAGE
+      #   4. 每个 stage 使用独立 module_dir，避免相互污染
       - name: 解析并克隆 ABK 模块
         if: github.event.inputs.abk_modules != ''
         env:
@@ -1015,56 +1014,69 @@ jobs:
             local cache_key=$(echo "$repo_url#$branch" | md5sum | cut -d' ' -f1)
             local cached_repo="$CACHE_DIR/$cache_key"
 
-            if [ -d "$cached_repo/.git" ]; then
-              echo "从缓存复制仓库: $cached_repo"
-              cp -r "$cached_repo" "/tmp/module_$$_$cache_key"
-            else
+            # ---- 只克隆一次到缓存 ----
+            if [ ! -d "$cached_repo/.git" ]; then
               echo "克隆仓库到缓存: $repo_url (分支: ${branch:-默认})"
               git clone --depth=1 ${branch:+-b "$branch"} "$repo_url" "$cached_repo" || return 1
-              cp -r "$cached_repo" "/tmp/module_$$_$cache_key"
+            else
+              echo "命中缓存: $cached_repo"
             fi
 
-            local module_dir="/tmp/module_$$_$cache_key"
-            local conf_file="$module_dir/module.conf"
-
-            # ---- 从 module.conf 读取阶段元数据 ----
+            # ---- 读取 module.conf 元数据（从缓存目录读取即可） ----
+            local conf_file="$cached_repo/module.conf"
             local supported_stages=""
             local default_stage=""
+            local recommended_stages=""
             if [ -f "$conf_file" ]; then
               supported_stages="$(read_conf_value "$conf_file" "ABK_MODULE_SUPPORTED_STAGES")"
               default_stage="$(read_conf_value "$conf_file" "ABK_MODULE_DEFAULT_STAGE")"
-              echo "  -> module.conf: SUPPORTED_STAGES=[$supported_stages], DEFAULT_STAGE=[$default_stage]"
+              recommended_stages="$(read_conf_value "$conf_file" "ABK_MODULE_RECOMMENDED_STAGES")"
+              echo "  -> module.conf: SUPPORTED=[$supported_stages], DEFAULT=[$default_stage], RECOMMENDED=[$recommended_stages]"
             else
-              echo "  -> 未找到 module.conf，将依赖用户输入或默认 after_patch"
+              echo "  -> 未找到 module.conf（缓存目录）"
             fi
 
-            # ---- 决定最终 stage ----
-            if [ -z "$stage" ]; then
-              if [ -n "$default_stage" ]; then
-                stage="$default_stage"
-                echo "  -> 用户未指定 stage，采用 module.conf 的 DEFAULT_STAGE: $stage"
-              else
-                # 兼容无 module.conf 的旧式模块：默认 after_patch
-                stage="after_patch"
-                echo "  -> 用户未指定 stage 且 module.conf 无 DEFAULT_STAGE，回退到 after_patch"
-              fi
-            else
+            # ---- 决定要执行哪些阶段 ----
+            local stages_to_run=()
+            if [ -n "$stage" ]; then
+              # 用户显式指定
+              stages_to_run=("$stage")
               echo "  -> 用户显式指定 stage: $stage"
+            elif [ -n "$recommended_stages" ]; then
+              # 未指定 → 展开 RECOMMENDED_STAGES
+              IFS=',' read -ra stages_to_run <<< "$recommended_stages"
+              for i in "${!stages_to_run[@]}"; do
+                stages_to_run[$i]="$(echo "${stages_to_run[$i]}" | xargs)"
+              done
+              echo "  -> 用户未指定 stage，自动展开 RECOMMENDED_STAGES: ${stages_to_run[*]}"
+            elif [ -n "$default_stage" ]; then
+              stages_to_run=("$default_stage")
+              echo "  -> 用户未指定 stage 且无 RECOMMENDED_STAGES，使用 DEFAULT_STAGE: $default_stage"
+            else
+              stages_to_run=("after_patch")
+              echo "  -> 无任何阶段元数据，回退到 after_patch"
             fi
 
-            # ---- 校验 stage 是否在 SUPPORTED_STAGES 内 ----
-            if [ -n "$supported_stages" ]; then
-              # 规范化列表（去除空格）
-              local normalized="$(echo "$supported_stages" | tr -d ' ')"
-              if [[ ",$normalized," != *",$stage,"* ]]; then
-                echo "::error::模块 $repo_url 的 stage '$stage' 不在 SUPPORTED_STAGES=[$supported_stages] 内"
-                return 1
+            # ---- 对每个阶段独立生成清单条目 ----
+            local normalized_supported="$(echo "$supported_stages" | tr -d ' ')"
+            for s in "${stages_to_run[@]}"; do
+              # 校验阶段是否在 SUPPORTED_STAGES 内
+              if [ -n "$normalized_supported" ]; then
+                if [[ ",$normalized_supported," != *",$s,"* ]]; then
+                  echo "::error::模块 $repo_url 的 stage '$s' 不在 SUPPORTED_STAGES=[$supported_stages] 内"
+                  return 1
+                fi
               fi
-              echo "  -> stage '$stage' 校验通过"
-            fi
 
-            printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-              "$stage" "$module_dir" "$repo_url" "$kind" "$group_url" "$child_id" >> "$MANIFEST"
+              # 每个阶段使用独立 module_dir，先删后复制，避免 cp -r 嵌套
+              local stage_dir="/tmp/module_$$_${cache_key}_${s}"
+              rm -rf "$stage_dir"
+              cp -r "$cached_repo" "$stage_dir"
+
+              printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$s" "$stage_dir" "$repo_url" "$kind" "$group_url" "$child_id" >> "$MANIFEST"
+              echo "  -> 已写入清单: stage=$s, dir=$stage_dir"
+            done
           }
 
           IFS='|' read -ra entries <<< "$ABK_MODULES_INPUT"
@@ -1072,8 +1084,10 @@ jobs:
             parse_and_clone "$entry" || exit 1
           done
 
-          echo "ABK 模块清单已生成: $MANIFEST"
+          echo ""
+          echo "=========== ABK 模块清单 ==========="
           cat "$MANIFEST"
+          echo "===================================="
           echo "ABK_MANIFEST_PATH=$(pwd)/$MANIFEST" >> $GITHUB_ENV
 
       # ==================== 生成 ABK 刷写依赖信息 ====================
@@ -1166,7 +1180,7 @@ jobs:
                   source_name = conf.get("ABK_MODULE_NAME", "").strip()
                   source_id = conf.get("ABK_MODULE_ID", "").strip()
 
-                  # 新增：读取阶段元数据，供下游消费方使用
+                  # 读取阶段元数据
                   supported_stages = conf.get("ABK_MODULE_SUPPORTED_STAGES", "").strip()
                   default_stage = conf.get("ABK_MODULE_DEFAULT_STAGE", "").strip()
                   recommended_stages = conf.get("ABK_MODULE_RECOMMENDED_STAGES", "").strip()
@@ -1218,7 +1232,6 @@ jobs:
                       "groupRepoUrl": group_url,
                       "childId": child_id,
                       "sourceName": source_name,
-                      # 新增字段：阶段元数据
                       "executedStage": stage,
                       "supportedStages": [s.strip() for s in supported_stages.split(',') if s.strip()],
                       "defaultStage": default_stage,
