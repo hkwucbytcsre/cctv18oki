@@ -1477,21 +1477,85 @@ jobs:
 
           HELPER = f"""/* {MARKER}:
            * ReSukiSU 严格签名块检查会拒绝 ABK Manager APK 里的额外块（如
-           * 0x504b4453）。这里仅对包名精确等于 {ABK_PACKAGE} 的 APK 放行
-           * 未知块，其他 APK 保持严格拒绝，CAN-2026-2035133 防护不受影响。
+           * 0x504b4453）。这里仅对满足以下全部条件的 APK 放行未知块：
+           *   1. 路径位于 Android 11+ 标准安装目录 /data/app/~~...==/ 下；
+           *   2. 路径以 /base.apk 结尾；
+           *   3. 倒数第二个目录内 '-' 恰好出现一次；
+           *   4. 包名段只含 [A-Za-z0-9_.]；
+           *   5. 提取出的包名精确等于 {ABK_PACKAGE}。
+           * 其他 APK 保持严格拒绝，CAN-2026-2035133 防护不受影响。
            *
            * 不复用 is_manager_apk() 中 KSU_MANAGER_PACKAGE 的判定结果，
-           * 独立用 get_pkg_from_apk_path() + strncmp 做精确包名匹配，
-           * 避免 strstr 子串误匹配，也避免 KSU_MANAGER_PACKAGE 未定义时
-           * 包名检查整体消失。
+           * 独立做精确包名匹配，避免 strstr 子串误匹配，也避免
+           * KSU_MANAGER_PACKAGE 未定义时包名检查整体消失。
            */
           int get_pkg_from_apk_path(char *pkg, const char *path);
+
+          static __always_inline bool abk_path_is_standard_apk(const char *path)
+          {{
+              const char *p;
+              const char *last_slash = NULL;
+              const char *second_last_slash = NULL;
+              const char *hyphen = NULL;
+              size_t path_len;
+
+              if (!path)
+                  return false;
+
+              /* Android 11+ 标准安装路径以 /data/app/~~ 开头 */
+              if (strncmp(path, "/data/app/~~", sizeof("/data/app/~~") - 1) != 0)
+                  return false;
+
+              /* 必须以 /base.apk 结尾 */
+              path_len = strlen(path);
+              if (path_len < sizeof("/base.apk") - 1)
+                  return false;
+              if (strcmp(path + path_len - (sizeof("/base.apk") - 1), "/base.apk") != 0)
+                  return false;
+
+              /* 定位最后两个 '/' */
+              for (p = path + path_len - 1; p >= path; p--) {{
+                  if (*p == '/') {{
+                      if (!last_slash) {{
+                          last_slash = p;
+                      }} else {{
+                          second_last_slash = p;
+                          break;
+                      }}
+                  }}
+              }}
+              if (!last_slash || !second_last_slash)
+                  return false;
+
+              /* 倒数第二个目录内 '-' 恰好出现一次 */
+              for (p = second_last_slash + 1; p < last_slash; p++) {{
+                  if (*p == '-') {{
+                      if (hyphen)
+                          return false;
+                      hyphen = p;
+                  }}
+              }}
+              if (!hyphen || hyphen == second_last_slash + 1)
+                  return false;
+
+              /* 包名段只允许 [A-Za-z0-9_.] */
+              for (p = second_last_slash + 1; p < hyphen; p++) {{
+                  char c = *p;
+                  if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                        (c >= '0' && c <= '9') || c == '_' || c == '.'))
+                      return false;
+              }}
+
+              return true;
+          }}
 
           static __always_inline bool abk_is_manager_path(const char *path)
           {{
               char pkg[KSU_MAX_PACKAGE_NAME];
 
               if (!path)
+                  return false;
+              if (!abk_path_is_standard_apk(path))
                   return false;
               if (get_pkg_from_apk_path(pkg, path) < 0)
                   return false;
