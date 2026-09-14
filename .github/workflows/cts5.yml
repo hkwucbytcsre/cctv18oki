@@ -1477,12 +1477,25 @@ jobs:
 
           HELPER = f"""/* {MARKER}:
            * ReSukiSU 严格签名块检查会拒绝 ABK Manager APK 里的额外块（如
-           * 0x504b4453）。这里仅对 {ABK_PACKAGE} 包名放行未知块，其他 APK
-           * 保持严格拒绝，CAN-2026-2035133 防护不受影响。
+           * 0x504b4453）。这里仅对包名精确等于 {ABK_PACKAGE} 的 APK 放行
+           * 未知块，其他 APK 保持严格拒绝，CAN-2026-2035133 防护不受影响。
+           *
+           * 不复用 is_manager_apk() 中 KSU_MANAGER_PACKAGE 的判定结果，
+           * 独立用 get_pkg_from_apk_path() + strncmp 做精确包名匹配，
+           * 避免 strstr 子串误匹配，也避免 KSU_MANAGER_PACKAGE 未定义时
+           * 包名检查整体消失。
            */
+          int get_pkg_from_apk_path(char *pkg, const char *path);
+
           static __always_inline bool abk_is_manager_path(const char *path)
           {{
-              return path && strstr(path, "{ABK_PACKAGE}") != NULL;
+              char pkg[KSU_MAX_PACKAGE_NAME];
+
+              if (!path)
+                  return false;
+              if (get_pkg_from_apk_path(pkg, path) < 0)
+                  return false;
+              return strncmp(pkg, ABK_MANAGER_PACKAGE, sizeof(ABK_MANAGER_PACKAGE)) == 0;
           }}
           """
 
