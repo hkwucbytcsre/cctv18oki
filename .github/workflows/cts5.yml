@@ -1460,6 +1460,117 @@ jobs:
           done < "$MANIFEST"
           echo "before_build 阶段共执行 $executed 个模块"
 
+      - name: 应用 ABK V3 签名绕过补丁（独立于上游 ABK 脚本）
+        if: github.event.inputs.abk_modules != '' && github.event.inputs.ksu_type != 'none'
+        env:
+          KERNEL_ROOT: ${{ github.workspace }}/kernel_workspace
+          ABK_MANAGER_PACKAGE: com.abk.kernel
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          KERNEL_ROOT = Path(os.environ["KERNEL_ROOT"]).resolve()
+          ABK_PACKAGE = os.environ.get("ABK_MANAGER_PACKAGE", "com.abk.kernel")
+          MARKER = "ABK_MANAGER_V3_BYPASS_FOR_ABK_PKG"
+
+          HELPER = f"""/* {MARKER}:
+           * ReSukiSU 严格签名块检查会拒绝 ABK Manager APK 里的额外块（如
+           * 0x504b4453）。这里仅对 {ABK_PACKAGE} 包名放行未知块，其他 APK
+           * 保持严格拒绝，CAN-2026-2035133 防护不受影响。
+           */
+          static __always_inline bool abk_is_manager_path(const char *path)
+          {{
+              return path && strstr(path, "{ABK_PACKAGE}") != NULL;
+          }}
+          """
+
+          STRICT_RE = re.compile(
+              r"(?P<indent>[ \t]*)\}\s*else\s+if\s*\(\s*id\s*!=\s*0x42726577u\s*\)\s*\{[^\n]*\n"
+              r"(?P<body>(?:.*?\n)*?)"
+              r"(?P=indent)[ \t]*goto\s+invalid;\s*\n"
+              r"(?P=indent)\}",
+              re.M,
+          )
+
+          def find_ksu_dirs(root: Path):
+              dirs = []
+              seen = set()
+              preferred = [
+                  root / "common/drivers/kernelsu",
+                  root / "drivers/kernelsu",
+                  root / "KernelSU/kernel",
+                  root / "kernel",
+              ]
+              for candidate in preferred:
+                  if (candidate / "Kbuild").exists() and (candidate / "manager/apk_sign.c").exists():
+                      resolved = candidate.resolve()
+                      if resolved not in seen:
+                          seen.add(resolved)
+                          dirs.append(candidate)
+
+              for dispatch in root.rglob("supercall/dispatch.c"):
+                  candidate = dispatch.parent.parent
+                  if (candidate / "Kbuild").exists() and (candidate / "manager/apk_sign.c").exists():
+                      resolved = candidate.resolve()
+                      if resolved not in seen:
+                          seen.add(resolved)
+                          dirs.append(candidate)
+              return dirs
+
+          def patch_file(path: Path) -> bool:
+              text = path.read_text(errors="ignore")
+              if MARKER in text:
+                  print(f"ABK V3 bypass already present: {path}")
+                  return False
+
+              if not STRICT_RE.search(text):
+                  print(f"ABK V3 bypass: strict block pattern not found, skip {path}")
+                  return False
+
+              anchor = re.search(
+                  r"(?m)^static\s+(?:__always_inline\s+)?bool\s+check_v2_signature\s*\(",
+                  text,
+              )
+              if not anchor:
+                  print(f"ABK V3 bypass: check_v2_signature anchor not found, skip {path}")
+                  return False
+
+              text = text[:anchor.start()] + HELPER + "\n" + text[anchor.start():]
+
+              def repl(m):
+                  indent = m.group("indent")
+                  body = m.group("body")
+                  return (
+                      f"{indent}}} else if (id != 0x42726577u) {{ // APK verity padding\n"
+                      f"{body}"
+                      f"{indent}    if (!abk_is_manager_path(path))\n"
+                      f"{indent}        goto invalid;\n"
+                      f"{indent}}}"
+                  )
+
+              text, count = STRICT_RE.subn(repl, text, count=1)
+              if not count:
+                  print(f"ABK V3 bypass: replacement failed, skip {path}")
+                  return False
+
+              path.write_text(text)
+              print(f"ABK V3 bypass patched: {path}")
+              return True
+
+          ksu_dirs = find_ksu_dirs(KERNEL_ROOT)
+          if not ksu_dirs:
+              print("ABK V3 bypass: no KernelSU source dir found, skip")
+          else:
+              changed = False
+              for ksu_dir in ksu_dirs:
+                  apk_sign = ksu_dir / "manager/apk_sign.c"
+                  if apk_sign.exists():
+                      changed = patch_file(apk_sign) or changed
+              print("ABK V3 bypass: done" + ("" if changed else " (no changes)"))
+          PY
+
       - name: 添加制作名称
         run: |
           cd kernel_workspace
