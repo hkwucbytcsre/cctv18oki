@@ -1460,159 +1460,19 @@ jobs:
           done < "$MANIFEST"
           echo "before_build 阶段共执行 $executed 个模块"
 
-      - name: 应用 ABK V3 签名绕过补丁（独立于上游 ABK 脚本）
+      - name: 应用 ABK DEPENDENCY_INFO_BLOCK 识别补丁（独立于上游 ABK 脚本）
         if: github.event.inputs.abk_modules != '' && github.event.inputs.ksu_type != 'none'
         env:
           KERNEL_ROOT: ${{ github.workspace }}/kernel_workspace
           ABK_MANAGER_PACKAGE: com.abk.kernel
         run: |
-          python3 - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          KERNEL_ROOT = Path(os.environ["KERNEL_ROOT"]).resolve()
-          ABK_PACKAGE = os.environ.get("ABK_MANAGER_PACKAGE", "com.abk.kernel")
-          MARKER = "ABK_MANAGER_V3_BYPASS_FOR_ABK_PKG"
-
-          HELPER = f"""/* {MARKER}:
-           * ReSukiSU 严格签名块检查会拒绝 ABK Manager APK 里的额外块（如
-           * 0x504b4453）。这里仅对满足以下全部条件的 APK 放行未知块：
-           *   1. 路径位于 Android 11+ 标准安装目录 /data/app/~~...==/ 下；
-           *   2. 路径以 /base.apk 结尾；
-           *   3. get_pkg_from_apk_path() 能成功提取包名；
-           *   4. 提取出的包名精确等于 {ABK_PACKAGE}。
-           * 其他 APK 保持严格拒绝，CAN-2026-2035133 防护不受影响。
-           *
-           * 不复用 is_manager_apk() 中 KSU_MANAGER_PACKAGE 的判定结果，
-           * 独立做精确包名匹配，避免 strstr 子串误匹配，也避免
-           * KSU_MANAGER_PACKAGE 未定义时包名检查整体消失。
-           *
-           * 注意：Android 11+ 的随机后缀使用 base64url 字母表
-           * [A-Za-z0-9_-]，其中可能包含 '-'，因此这里不检查
-           * 倒数第二个目录内 '-' 的数量，避免误拒绝合法路径。
-           */
-          int get_pkg_from_apk_path(char *pkg, const char *path);
-
-          static __always_inline bool abk_path_is_standard_apk(const char *path)
-          {{
-              size_t path_len;
-
-              if (!path)
-                  return false;
-
-              /* Android 11+ 标准安装路径以 /data/app/~~ 开头 */
-              if (strncmp(path, "/data/app/~~", sizeof("/data/app/~~") - 1) != 0)
-                  return false;
-
-              /* 必须以 /base.apk 结尾 */
-              path_len = strlen(path);
-              if (path_len < sizeof("/base.apk") - 1)
-                  return false;
-              if (strcmp(path + path_len - (sizeof("/base.apk") - 1), "/base.apk") != 0)
-                  return false;
-
-              return true;
-          }}
-
-          static __always_inline bool abk_is_manager_path(const char *path)
-          {{
-              char pkg[KSU_MAX_PACKAGE_NAME];
-
-              if (!path)
-                  return false;
-              if (!abk_path_is_standard_apk(path))
-                  return false;
-              if (get_pkg_from_apk_path(pkg, path) < 0)
-                  return false;
-              return strncmp(pkg, ABK_MANAGER_PACKAGE, sizeof(ABK_MANAGER_PACKAGE)) == 0;
-          }}
-          """
-
-          STRICT_RE = re.compile(
-              r"(?P<indent>[ \t]*)\}\s*else\s+if\s*\(\s*id\s*!=\s*0x42726577u\s*\)\s*\{[^\n]*\n"
-              r"(?P<body>(?:.*?\n)*?)"
-              r"(?P=indent)[ \t]*goto\s+invalid;\s*\n"
-              r"(?P=indent)\}",
-              re.M,
-          )
-
-          def find_ksu_dirs(root: Path):
-              dirs = []
-              seen = set()
-              preferred = [
-                  root / "common/drivers/kernelsu",
-                  root / "drivers/kernelsu",
-                  root / "KernelSU/kernel",
-                  root / "kernel",
-              ]
-              for candidate in preferred:
-                  if (candidate / "Kbuild").exists() and (candidate / "manager/apk_sign.c").exists():
-                      resolved = candidate.resolve()
-                      if resolved not in seen:
-                          seen.add(resolved)
-                          dirs.append(candidate)
-
-              for dispatch in root.rglob("supercall/dispatch.c"):
-                  candidate = dispatch.parent.parent
-                  if (candidate / "Kbuild").exists() and (candidate / "manager/apk_sign.c").exists():
-                      resolved = candidate.resolve()
-                      if resolved not in seen:
-                          seen.add(resolved)
-                          dirs.append(candidate)
-              return dirs
-
-          def patch_file(path: Path) -> bool:
-              text = path.read_text(errors="ignore")
-              if MARKER in text:
-                  print(f"ABK V3 bypass already present: {path}")
-                  return False
-
-              if not STRICT_RE.search(text):
-                  print(f"ABK V3 bypass: strict block pattern not found, skip {path}")
-                  return False
-
-              anchor = re.search(
-                  r"(?m)^static\s+(?:__always_inline\s+)?bool\s+check_v2_signature\s*\(",
-                  text,
-              )
-              if not anchor:
-                  print(f"ABK V3 bypass: check_v2_signature anchor not found, skip {path}")
-                  return False
-
-              text = text[:anchor.start()] + HELPER + "\n" + text[anchor.start():]
-
-              def repl(m):
-                  indent = m.group("indent")
-                  body = m.group("body")
-                  return (
-                      f"{indent}}} else if (id != 0x42726577u) {{ // APK verity padding\n"
-                      f"{body}"
-                      f"{indent}    if (!abk_is_manager_path(path))\n"
-                      f"{indent}        goto invalid;\n"
-                      f"{indent}}}"
-                  )
-
-              text, count = STRICT_RE.subn(repl, text, count=1)
-              if not count:
-                  print(f"ABK V3 bypass: replacement failed, skip {path}")
-                  return False
-
-              path.write_text(text)
-              print(f"ABK V3 bypass patched: {path}")
-              return True
-
-          ksu_dirs = find_ksu_dirs(KERNEL_ROOT)
-          if not ksu_dirs:
-              print("ABK V3 bypass: no KernelSU source dir found, skip")
-          else:
-              changed = False
-              for ksu_dir in ksu_dirs:
-                  apk_sign = ksu_dir / "manager/apk_sign.c"
-                  if apk_sign.exists():
-                      changed = patch_file(apk_sign) or changed
-              print("ABK V3 bypass: done" + ("" if changed else " (no changes)"))
-          PY
+          set -euo pipefail
+          SCRIPT_URL="https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/abk_dependency_info_block.py"
+          SCRIPT_PATH="/tmp/abk_dependency_info_block.py"
+          echo "下载 ABK DEPENDENCY_INFO_BLOCK 补丁脚本: $SCRIPT_URL"
+          wget -q "$SCRIPT_URL" -O "$SCRIPT_PATH"
+          echo "执行补丁脚本..."
+          python3 "$SCRIPT_PATH"
 
       - name: 添加制作名称
         run: |
