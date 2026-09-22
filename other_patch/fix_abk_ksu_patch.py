@@ -139,14 +139,16 @@ void abk_try_register_manager(void);
 
     # ============================================================
     # 4. patch_tracker
-    #    新版：不再注入 abk_try_register_manager 空壳，直接跳过
+    #    新版：跳过 throne_tracker.c 的空壳，但仍需注入
+    #          manager_identity.h 里的 ABK 辅助函数
     # ============================================================
     new_patch_tracker = '''def patch_tracker(ksu_dir: Path) -> None:
     path = ksu_dir / "manager/throne_tracker.c"
     if not path.exists():
         raise SystemExit(f"{path} is missing")
     if is_resukisu_tracker(ksu_dir):
-        print("ABK Control: new multi-manager detected, skip throne_tracker.c patch")
+        print("ABK Control: new multi-manager detected, skipping throne_tracker.c patch")
+        patch_single_manager_identity(ksu_dir)
         return
     patch_single_manager_tracker(ksu_dir, path)
     patch_single_manager_allowlist(ksu_dir)
