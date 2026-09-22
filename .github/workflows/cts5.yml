@@ -1314,10 +1314,9 @@ jobs:
           set -euo pipefail
           wget -O /tmp/fix_abk_ksu_patch.py https://raw.githubusercontent.com/$GITHUB_REPOSITORY/refs/heads/$GITHUB_REF_NAME/other_patch/fix_abk_ksu_patch.py
 
-          MANIFEST="$ABK_MANIFEST"
-          if [ -s "$MANIFEST" ]; then
+          MANIFEST="${ABK_MANIFEST_PATH:-}"
+          if [ -n "$MANIFEST" ] && [ -s "$MANIFEST" ]; then
             while IFS=$'\t' read -r stage module_dir repo_url kind group_url child_id; do
-              # 根据 ABK_control_module 的结构，补丁脚本位于 scripts/ 下
               py="$module_dir/scripts/abk_control_ksu_patch.py"
               if [ -f "$py" ]; then
                 echo "修复: $py"
@@ -1327,7 +1326,7 @@ jobs:
               fi
             done < "$MANIFEST"
           else
-            echo "清单为空，跳过修复"
+            echo "清单为空或未设置，跳过修复"
           fi
 
       # ==================== 阶段1: ABK 模块 after_patch ====================
