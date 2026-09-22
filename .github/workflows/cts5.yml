@@ -1308,6 +1308,18 @@ jobs:
               output_path.unlink()
           PY
 
+      - name: 修复 ABK 模块的 KernelSU 补丁脚本
+        if: github.event.inputs.abk_modules != ''
+        run: |
+          set -euo pipefail
+          # 下载修复脚本
+          wget -O /tmp/fix_abk_ksu_patch.py https://raw.githubusercontent.com/$GITHUB_REPOSITORY/refs/heads/$GITHUB_REF_NAME/other_patch/fix_abk_ksu_patch.py
+          # 找到所有克隆的 ABK 模块中的 abk_control_ksu_patch.py 并修复
+          find /tmp -path "*/other_patch/abk_control_ksu_patch.py" -type f | while read -r py; do
+            echo "修复: $py"
+            python3 /tmp/fix_abk_ksu_patch.py "$py"
+          done
+
       # ==================== 阶段1: ABK 模块 after_patch ====================
       - name: 执行 ABK 模块 (after_patch)
         if: github.event.inputs.abk_modules != ''
