@@ -1460,6 +1460,20 @@ jobs:
           done < "$MANIFEST"
           echo "before_build 阶段共执行 $executed 个模块"
 
+      - name: 应用 ABK DEPENDENCY_INFO_BLOCK 识别补丁（独立于上游 ABK 脚本）
+        if: github.event.inputs.abk_modules != '' && github.event.inputs.ksu_type != 'none'
+        env:
+          KERNEL_ROOT: ${{ github.workspace }}/kernel_workspace
+          ABK_MANAGER_PACKAGE: com.abk.kernel
+        run: |
+          set -euo pipefail
+          SCRIPT_URL="https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/abk_dependency_info_block.py"
+          SCRIPT_PATH="/tmp/abk_dependency_info_block.py"
+          echo "下载 ABK DEPENDENCY_INFO_BLOCK 补丁脚本: $SCRIPT_URL"
+          wget -q "$SCRIPT_URL" -O "$SCRIPT_PATH"
+          echo "执行补丁脚本..."
+          python3 "$SCRIPT_PATH"
+
       - name: 添加制作名称
         run: |
           cd kernel_workspace
