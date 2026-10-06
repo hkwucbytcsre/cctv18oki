@@ -83,10 +83,10 @@ static inline void abk_unregister_all_managers(void)
     )
 
     # ============================================================
-    # 2. is_resukisu_tracker
+    # 2. is_bakasu_tracker
     #    新版：只通过 manager_identity.h 判断
     # ============================================================
-    new_is_resu = '''def is_resukisu_tracker(ksu_dir: Path) -> bool:
+    new_is_resu = '''def is_bakasu_tracker(ksu_dir: Path) -> bool:
     """检测新版 ReSukiSU 多管理器。"""
     path = ksu_dir / "manager/throne_tracker.c"
     header_path = ksu_dir / "manager/throne_tracker.h"
@@ -98,8 +98,8 @@ static inline void abk_unregister_all_managers(void)
         and "ksu_unregister_all_manager" in identity
     )
 '''
-    content, counts["is_resukisu_tracker"] = _sub_function(
-        content, "is_resukisu_tracker", new_is_resu
+    content, counts["is_bakasu_tracker"] = _sub_function(
+        content, "is_bakasu_tracker", new_is_resu
     )
 
     # ============================================================
@@ -107,7 +107,7 @@ static inline void abk_unregister_all_managers(void)
     #    新版：不需要 abk_try_register_manager，直接跳过
     # ============================================================
     new_patch_throne_header = '''def patch_throne_header(ksu_dir: Path) -> None:
-    if is_resukisu_tracker(ksu_dir):
+    if is_bakasu_tracker(ksu_dir):
         print("ABK Control: new multi-manager detected, skip throne_tracker.h patch")
         return
     path = ksu_dir / "manager/throne_tracker.h"
@@ -146,7 +146,7 @@ void abk_try_register_manager(void);
     path = ksu_dir / "manager/throne_tracker.c"
     if not path.exists():
         raise SystemExit(f"{path} is missing")
-    if is_resukisu_tracker(ksu_dir):
+    if is_bakasu_tracker(ksu_dir):
         print("ABK Control: new multi-manager detected, skipping throne_tracker.c patch")
         patch_single_manager_identity(ksu_dir)
         return
@@ -165,7 +165,7 @@ void abk_try_register_manager(void);
     path = ksu_dir / "supercall/dispatch.c"
     if not path.exists():
         raise SystemExit(f"{path} is missing")
-    if is_resukisu_tracker(ksu_dir):
+    if is_bakasu_tracker(ksu_dir):
         print("ABK Control: new multi-manager detected, skip dispatch GET_INFO hook")
         return
     text = path.read_text(errors="ignore")
@@ -218,7 +218,7 @@ void abk_try_register_manager(void);
             "ABK_CONTROL_IOCTL_GET_STATUS"
         )
 
-    if is_resukisu_tracker(ksu_dir):
+    if is_bakasu_tracker(ksu_dir):
         required[ksu_dir / "manager/manager_identity.h"] = [
             "ABK_MANAGER_MULTI_MANAGER_BRIDGE",
             "abk_register_manager",
@@ -251,7 +251,7 @@ void abk_try_register_manager(void);
                 f"{path} missing ABK Control injection: {', '.join(missing)}"
             )
 
-    if not is_resukisu_tracker(ksu_dir):
+    if not is_bakasu_tracker(ksu_dir):
         tracker = (ksu_dir / "manager/throne_tracker.c").read_text(errors="ignore")
         forbidden = [
             "ABK Control: prefer ABK manager",
@@ -293,7 +293,7 @@ void abk_try_register_manager(void);
 
     for name in (
         "patch_single_manager_identity",
-        "is_resukisu_tracker",
+        "is_bakasu_tracker",
         "patch_throne_header",
         "patch_tracker",
         "patch_dispatch_registration",
