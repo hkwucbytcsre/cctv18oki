@@ -41,6 +41,7 @@ HEADER = r'''/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/sched.h>
 #include <linux/cred.h>
 #include <linux/uidgid.h>
+#include <linux/capability.h>
 
 /* 与 fakeuid 的 src/include/uidfake.h 保持一致 */
 #define UF_TAG_SHIFT 40
