@@ -1474,6 +1474,30 @@ jobs:
           echo "执行补丁脚本..."
           python3 "$SCRIPT_PATH"
 
+      - name: 应用 UIDFilter 内核侧补丁
+        run: |
+          set -e
+          KERNEL_ROOT="kernel_workspace/common"
+
+          if grep -q "uidfake_should_hide" "$KERNEL_ROOT/kernel/sys.c" 2>/dev/null; then
+            echo "已包含 uidfake_should_hide，跳过"
+          else
+            python3 other_patch/uid.py "$KERNEL_ROOT"
+          fi
+
+          # 校验
+          grep -q "uidfake_should_hide" "$KERNEL_ROOT/kernel/sys.c"
+          IOPRIO_FILE=""
+          for f in "$KERNEL_ROOT/block/ioprio.c" "$KERNEL_ROOT/fs/ioprio.c"; do
+            [ -f "$f" ] && IOPRIO_FILE="$f" && break
+          done
+          grep -q "uidfake_should_hide" "$IOPRIO_FILE"
+          ls "$KERNEL_ROOT/include/linux/uidfake_compat.h"
+
+          # 校验通过后清理备份，避免污染源码树和后续打包
+          find "$KERNEL_ROOT" -name "*.uidfake.bak" -delete
+          echo "UIDfake 补丁应用并清理完成"
+
       - name: 添加制作名称
         run: |
           cd kernel_workspace
