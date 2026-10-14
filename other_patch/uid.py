@@ -79,19 +79,27 @@ static __always_inline bool uidfake_target_is_app(kuid_t uid)
  */
 static __always_inline bool uidfake_should_hide(kuid_t uid)
 {
-    if (!uidfake_tag_isset())
-        return false;
-    if (!uidfake_caller_is_app())
-        return false;
-    // 放行持有 CAP_SYS_NICE 或 CAP_SYS_ADMIN 的进程
-    // 尊重 setpriority 和 ioprio_set 的原生权限模型
-    if (capable(CAP_SYS_NICE) || capable(CAP_SYS_ADMIN))
-        return false;
-    if (!uidfake_target_is_app(uid))
-        return false;
-    if (uid_eq(uid, current_uid()))
-        return false;
-    return true;
+	/* 1. 最便宜，最常失败：绝大多数进程没有 tag */
+	if (!uidfake_tag_isset())
+		return false;
+
+	/* 2. 便宜，经常失败：target 是系统 uid / 隔离 uid / 不存在的 uid */
+	if (!uidfake_target_is_app(uid))
+		return false;
+
+	/* 3. 便宜，经常失败：查询自己 */
+	if (uid_eq(uid, current_uid()))
+		return false;
+
+	/* 4. 中等开销：caller 是不是 App */
+	if (!uidfake_caller_is_app())
+		return false;
+
+	/* 5. 最贵：能力检查 */
+	if (capable(CAP_SYS_NICE) || capable(CAP_SYS_ADMIN))
+		return false;
+
+	return true;
 }
 
 #endif /* _LINUX_UIDFAKE_COMPAT_H */
