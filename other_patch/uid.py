@@ -25,14 +25,24 @@ from pathlib import Path
 
 HEADER = r'''/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * uidfake_compat.h - 内核侧对 fakeuid tag 的无差别隐藏辅助。
+ * uidfake_compat.h - 内核侧对 App 进程的无差别 uid 隐藏。
  *
- * fakeuid 在进程出生时，把 app id 写入 thread_info.flags 的高位（tag）。
- * 本头文件只读 tag，不写入，不做任何模块侧逻辑。
+ * 方案 B：不依赖 fakeuid 模块的 tag，直接看 uid 范围。
  *
- * fakeuid 未加载时，没有任何进程有 tag，uidfake_should_hide() 恒返回
- * false，内核行为与未修改前完全一致；系统进程的 fsuid 不在 App uid
- * 范围，即使意外有 tag，uidfake_caller_is_app() 也会拦住它们。
+ * 满足以下条件时返回 true，syscall 层返回 -ESRCH：
+ *   - caller 是普通 App（10000..19999）或隔离进程（90000..98999）
+ *   - target 是普通 App（10000..19999）
+ *   - target 不是 caller 自己
+ *   - caller 没有 CAP_SYS_NICE / CAP_SYS_ADMIN
+ *
+ * 该逻辑完全独立于 fakeuid 模块：
+ *   - 不读 thread_info.flags
+ *   - 不依赖任何 tag
+ *   - 不需要 netlink、不需要用户态组件
+ *   - 只需要这段头文件 + kernel/sys.c 和 ioprio.c 的四处调用
+ *
+ * 系统进程（uid < 10000）不受影响：caller_ok 返回 false。
+ * 内核线程不调用这些 syscall，天然不受影响。
  */
 #ifndef _LINUX_UIDFAKE_COMPAT_H
 #define _LINUX_UIDFAKE_COMPAT_H
@@ -43,24 +53,16 @@ HEADER = r'''/* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/uidgid.h>
 #include <linux/capability.h>
 
-/* 与 fakeuid 的 src/include/uidfake.h 保持一致 */
-#define UF_TAG_SHIFT 40
-#define UF_TAG_MASK  0x3fffUL
-
-static __always_inline bool uidfake_tag_isset(void)
+/* caller 是否是 App 层面的进程（普通 App 或隔离进程） */
+static __always_inline bool uidfake_caller_is_app(kuid_t caller)
 {
-	unsigned long flags = READ_ONCE(current->thread_info.flags);
+	u32 app = __kuid_val(caller) % 100000u;
 
-	return ((flags >> UF_TAG_SHIFT) & UF_TAG_MASK) != 0;
+	return (app >= 10000u && app <= 19999u) ||
+	       (app >= 90000u && app <= 98999u);
 }
 
-static __always_inline bool uidfake_caller_is_app(void)
-{
-	u32 app = __kuid_val(current_uid()) % 100000u;
-
-	return app >= 10000u && app <= 19999u;
-}
-
+/* target 是否是普通 App uid */
 static __always_inline bool uidfake_target_is_app(kuid_t uid)
 {
 	u32 app = __kuid_val(uid) % 100000u;
@@ -69,33 +71,31 @@ static __always_inline bool uidfake_target_is_app(kuid_t uid)
 }
 
 /*
- * 是否对被 tag 的进程做无差别失效：
- *   - 当前进程必须有 fakeuid tag（未加载 / 未保护时为 0）
- *   - caller 必须是 App uid
- *   - target 必须是 App uid
- *   - target 不能是 caller 自己
+ * 是否对被查询的 uid 做无差别失效。
  *
- * 所有条件均为无数据依赖分支的比较，arm64 上编译器会生成 cmp/csel。
+ * 判断顺序按"便宜 + 常失败"排列：
+ *   1. target_is_app   纯寄存器运算，最便宜，target 常是系统/隔离 uid
+ *   2. caller_is_app   读 cred，中等开销
+ *   3. uid_eq          读 cred，和 caller 判断共享 current_uid()
+ *   4. capable         最贵，普通 App 没能力
  */
 static __always_inline bool uidfake_should_hide(kuid_t uid)
 {
-	/* 1. 最便宜，最常失败：绝大多数进程没有 tag */
-	if (!uidfake_tag_isset())
-		return false;
+	kuid_t caller = current_uid();
 
-	/* 2. 便宜，经常失败：target 是系统 uid / 隔离 uid / 不存在的 uid */
+	/* 1. target 不是普通 App，直接放行 */
 	if (!uidfake_target_is_app(uid))
 		return false;
 
-	/* 3. 便宜，经常失败：查询自己 */
-	if (uid_eq(uid, current_uid()))
+	/* 2. caller 不是 App/隔离进程，直接放行 */
+	if (!uidfake_caller_is_app(caller))
 		return false;
 
-	/* 4. 中等开销：caller 是不是 App */
-	if (!uidfake_caller_is_app())
+	/* 3. 查询自己，不隐藏 */
+	if (uid_eq(uid, caller))
 		return false;
 
-	/* 5. 最贵：能力检查 */
+	/* 4. 持有修改类能力的进程，走原生路径 */
 	if (capable(CAP_SYS_NICE) || capable(CAP_SYS_ADMIN))
 		return false;
 
