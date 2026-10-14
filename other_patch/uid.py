@@ -78,15 +78,19 @@ static __always_inline bool uidfake_target_is_app(kuid_t uid)
  */
 static __always_inline bool uidfake_should_hide(kuid_t uid)
 {
-	if (!uidfake_tag_isset())
-		return false;
-	if (!uidfake_caller_is_app())
-		return false;
-	if (!uidfake_target_is_app(uid))
-		return false;
-	if (uid_eq(uid, current_uid()))
-		return false;
-	return true;
+    if (!uidfake_tag_isset())
+        return false;
+    if (!uidfake_caller_is_app())
+        return false;
+    // 放行持有 CAP_SYS_NICE 或 CAP_SYS_ADMIN 的进程
+    // 尊重 setpriority 和 ioprio_set 的原生权限模型
+    if (capable(CAP_SYS_NICE) || capable(CAP_SYS_ADMIN))
+        return false;
+    if (!uidfake_target_is_app(uid))
+        return false;
+    if (uid_eq(uid, current_uid()))
+        return false;
+    return true;
 }
 
 #endif /* _LINUX_UIDFAKE_COMPAT_H */
