@@ -388,6 +388,27 @@ jobs:
           patch -p1 -F 3 < 2026-43284.patch
           echo "✓ cve2026-43284.patch 补丁应用成功"
 
+      - name: 应用 CVE-2026-46242 补丁
+        run: |
+          echo ">>> 应用 CVE-2026-46242.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/CVE-2026-46242.patch
+          patch -p1 -F 3 < CVE-2026-46242.patch
+          echo "✓ CVE-2026-46242.patch 补丁应用成功"
+          
+          # ===== 验证补丁是否生效 =====
+          echo ">>> 验证补丁应用结果..."
+          if grep -q "epi_fget" fs/eventpoll.c; then
+            echo "✅ 补丁成功应用：检测到 epi_fget 调用"
+            echo "--- 修改后的 ep_remove_safe 函数附近内容 ---"
+            grep -B 5 -A 15 "ep_remove_safe" fs/eventpoll.c | head -40 | cat
+          else
+            echo "❌ 补丁未正确应用，未检测到 epi_fget"
+            echo "--- 当前 eventpoll.c 中相关函数 ---"
+            grep -A 20 "static void ep_remove_safe" fs/eventpoll.c | cat
+            exit 1
+          fi
+
       - name: 添加KernelSU
         id: ksu_version
         run: |
