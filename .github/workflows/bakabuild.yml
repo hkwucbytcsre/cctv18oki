@@ -1629,6 +1629,9 @@ jobs:
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
+          # 修复 glibc>=2.42 / C23 下 strchr 返回 const char* 触发 -Werror 导致的主机工具构建失败
+          sed -i "s/next_path = strchr(s, ':');/next_path = (char *)strchr(s, ':');/" tools/lib/bpf/libbpf.c
+          grep -n "next_path = (char \*)strchr" tools/lib/bpf/libbpf.c && echo ">>> libbpf.c 修补成功 <<<" || { echo ">>> 修补失败 <<<"; exit 1; }
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod 777 ./*.so
@@ -1675,8 +1678,8 @@ jobs:
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
-          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) WERROR=0 LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
-          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) WERROR=0 LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
+          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
+          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
