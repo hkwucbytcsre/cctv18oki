@@ -1540,73 +1540,44 @@ jobs:
             exit 1
           fi
 
-      - name: 添加制作名称
+      - name: 设置内核版本后缀（LOCALVERSION）
         run: |
-          cd kernel_workspace
-          
-          # 确定最终后缀
-          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            FINAL_SUFFIX="${{ github.event.inputs.kernel_suffix }}"
+          cd kernel_workspace/common
+
+          # 1. 确定后缀
+          if [ -n "${{ github.event.inputs.kernel_suffix }}" ]; then
+            SUFFIX="${{ github.event.inputs.kernel_suffix }}"
           else
-            FINAL_SUFFIX="${{ env.KERNEL_NAME }}"
+            SUFFIX="${{ env.KERNEL_NAME }}"
           fi
-          
-          echo "替换内核版本后缀为: -${FINAL_SUFFIX}"
-          
-          # 处理 setlocalversion 脚本
-          SCRIPT="./common/scripts/setlocalversion"
-          if [[ -f "$SCRIPT" ]]; then
-            # 移除 -dirty 标记
-            sed -i 's/ -dirty//g' "$SCRIPT"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$SCRIPT"
-            
-            # 检测脚本格式并修改
-            if grep -q 'KERNELVERSION.*scm_version' "$SCRIPT"; then
-              # 新格式：直接替换 echo 行
-              sed -i "s|echo \"\${KERNELVERSION}.*scm_version}\"|echo \"\${KERNELVERSION}-${FINAL_SUFFIX}\"|" "$SCRIPT"
-            elif grep -q 'echo "\$res"' "$SCRIPT"; then
-              # 旧格式：替换第一个 echo "$res" 为固定输出
-              sed -i "0,/echo \"\$res\"/s//echo \"-${FINAL_SUFFIX}\"/" "$SCRIPT"
-            else
-              echo "警告：未识别的 setlocalversion 格式，尝试追加 echo"
-              echo "echo \"-${FINAL_SUFFIX}\"" >> "$SCRIPT"
+          echo "版本后缀: -${SUFFIX}"
+
+          # 2. defconfig 里只保留一份 CONFIG_LOCALVERSION，并关掉 AUTO
+          grep -v '^CONFIG_LOCALVERSION' arch/arm64/configs/gki_defconfig > arch/arm64/configs/gki_defconfig.tmp
+          echo "CONFIG_LOCALVERSION=\"-${SUFFIX}\"" >> arch/arm64/configs/gki_defconfig.tmp
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> arch/arm64/configs/gki_defconfig.tmp
+          mv arch/arm64/configs/gki_defconfig.tmp arch/arm64/configs/gki_defconfig
+
+          # 3. 清掉内核树里可能存在的 localversion 文件，防止二次追加
+          rm -f localversion localversion-*
+
+          # 4. 用确定性脚本替换原厂 setlocalversion：只输出 CONFIG_LOCALVERSION 的值，
+          #    不追加 git / -g / + / -dirty 等任何信息（ZIP 源码无 .git，正好）
+          cat > scripts/setlocalversion <<'EOF'
+          #!/bin/sh
+          for f in "$1/.config" "./.config"; do
+            if [ -f "$f" ]; then
+              sed -n 's/^CONFIG_LOCALVERSION="\(.*\)"$/\1/p' "$f" | head -n 1
+              exit 0
             fi
-            chmod +x "$SCRIPT"
-          else
-            echo "错误：未找到 $SCRIPT"
-            exit 1
-          fi
-          
-          # 修改 defconfig 中的配置
-          if [[ -f ./common/arch/arm64/configs/gki_defconfig ]]; then
-            # 删除已有的 CONFIG_LOCALVERSION 行
-            grep -v '^CONFIG_LOCALVERSION=' ./common/arch/arm64/configs/gki_defconfig > ./common/arch/arm64/configs/gki_defconfig.tmp
-            echo "CONFIG_LOCALVERSION=\"-${FINAL_SUFFIX}\"" >> ./common/arch/arm64/configs/gki_defconfig.tmp
-            mv ./common/arch/arm64/configs/gki_defconfig.tmp ./common/arch/arm64/configs/gki_defconfig
-            # 关闭自动追加
-            echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-            # 替换 -4k 字符串（如果原 defconfig 中有）
-            sed -i "s/-4k/-${FINAL_SUFFIX}/g" ./common/arch/arm64/configs/gki_defconfig
-          else
-            echo "警告：未找到 gki_defconfig"
-          fi
-          
-          # ========== 准确的成功输出 ==========
-          echo "::group::✅ 内核版本后缀修改成功"
-          echo "最终内核版本后缀: -${FINAL_SUFFIX}"
-          echo "完整内核版本预计为: ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${FINAL_SUFFIX}"
-          # 验证修改
-          if grep -q "echo \"-${FINAL_SUFFIX}\"" ./common/scripts/setlocalversion 2>/dev/null; then
-            echo "✅ setlocalversion 已正确替换 echo 输出"
-          else
-            echo "⚠️ 注意：setlocalversion 未检测到预期 echo 行，请检查脚本格式"
-          fi
-          if grep -q "CONFIG_LOCALVERSION=\"-${FINAL_SUFFIX}\"" ./common/arch/arm64/configs/gki_defconfig; then
-            echo "✅ gki_defconfig 已正确设置 CONFIG_LOCALVERSION"
-          else
-            echo "⚠️ 注意：gki_defconfig 未检测到 CONFIG_LOCALVERSION 设置"
-          fi
-          echo "::endgroup::"
+          done
+          exit 0
+          EOF
+          chmod +x scripts/setlocalversion
+
+          # 5. 打印结果（纯输出，不是校验门禁）
+          grep -E '^CONFIG_LOCALVERSION' arch/arm64/configs/gki_defconfig
+          echo "预计完整版本: ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${SUFFIX}"
 
       - name: Download PatchFakePatches.kts
         run: |
