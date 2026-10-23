@@ -1519,6 +1519,27 @@ jobs:
           find "$KERNEL_ROOT" -name "*.uidfake.bak" -delete
           echo "UIDfake 补丁应用并清理完成"
 
+      - name: 应用 cpuutil 补丁
+        run: |
+          echo ">>> 应用 cpuutil.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/cpuutil.patch
+          patch -p1 -F 3 < cpuutil.patch
+          echo "✓ cpuutil.patch 补丁应用成功"
+          
+          # ===== 验证补丁是否生效 =====
+          echo ">>> 验证补丁应用结果..."
+          if grep -q "bool add_task = p && task_cpu(p) != cpu && dst_cpu == cpu;" kernel/sched/fair.c; then
+            echo "✅ 补丁成功应用：检测到 add_task 定义"
+            echo "--- 修改后的 cpu_util 函数 ---"
+            sed -n '/^static unsigned long$/,/^}/p' kernel/sched/fair.c | grep -A 30 "cpu_util(int cpu" | head -35
+          else
+            echo "❌ 补丁未正确应用，未检测到关键代码"
+            echo "--- 当前 cpu_util 函数 ---"
+            grep -A 20 "cpu_util(int cpu" kernel/sched/fair.c | head -25
+            exit 1
+          fi
+
       - name: 添加制作名称
         run: |
           cd kernel_workspace
