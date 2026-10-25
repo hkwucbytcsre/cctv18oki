@@ -380,6 +380,14 @@ jobs:
             exit 1
           fi
 
+      - name: 应用 CVE-2026-43284 补丁
+        run: |
+          echo ">>> 应用 cve2026-43284.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/2026-43284.patch
+          patch -p1 -F 3 < 2026-43284.patch
+          echo "✓ cve2026-43284.patch 补丁应用成功"
+
       - name: 应用 CVE-2026-46242 补丁
         run: |
           echo ">>> 应用 CVE-2026-46242.patch 补丁..."
@@ -1487,97 +1495,46 @@ jobs:
           echo "执行补丁脚本..."
           python3 "$SCRIPT_PATH"
 
-      - name: 应用 UIDFilter 内核侧补丁
+      - name: 应用 cpuutil 补丁
         run: |
-          set -e
-          KERNEL_ROOT="kernel_workspace/common"
-
-          if grep -q "uidfake_should_hide" "$KERNEL_ROOT/kernel/sys.c" 2>/dev/null; then
-            echo "已包含 uidfake_should_hide，跳过"
+          echo ">>> 应用 cpuutil.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/cpuutil.patch
+          patch -p1 -F 3 < cpuutil.patch
+          echo "✓ cpuutil.patch 补丁应用成功"
+          
+          # ===== 验证补丁是否生效 =====
+          echo ">>> 验证补丁应用结果..."
+          if grep -q "bool add_task = p && task_cpu(p) != cpu && dst_cpu == cpu;" kernel/sched/fair.c; then
+            echo "✅ 补丁成功应用：检测到 add_task 定义"
+            echo "--- 修改后的 cpu_util 函数 ---"
+            sed -n '/^static unsigned long$/,/^}/p' kernel/sched/fair.c | grep -A 30 "cpu_util(int cpu" | head -35
           else
-            python3 other_patch/uid.py "$KERNEL_ROOT"
+            echo "❌ 补丁未正确应用，未检测到关键代码"
+            echo "--- 当前 cpu_util 函数 ---"
+            grep -A 20 "cpu_util(int cpu" kernel/sched/fair.c | head -25
+            exit 1
           fi
-
-          # 校验
-          grep -q "uidfake_should_hide" "$KERNEL_ROOT/kernel/sys.c"
-          IOPRIO_FILE=""
-          for f in "$KERNEL_ROOT/block/ioprio.c" "$KERNEL_ROOT/fs/ioprio.c"; do
-            [ -f "$f" ] && IOPRIO_FILE="$f" && break
-          done
-          grep -q "uidfake_should_hide" "$IOPRIO_FILE"
-          ls "$KERNEL_ROOT/include/linux/uidfake_compat.h"
-
-          # 校验通过后清理备份，避免污染源码树和后续打包
-          find "$KERNEL_ROOT" -name "*.uidfake.bak" -delete
-          echo "UIDfake 补丁应用并清理完成"
 
       - name: 添加制作名称
         run: |
           cd kernel_workspace
-          
-          # 确定最终后缀
+          echo "替换内核版本后缀..."
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            FINAL_SUFFIX="${{ github.event.inputs.kernel_suffix }}"
+            echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
+            for f in ./common/scripts/setlocalversion; do
+              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
+            done
+            sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
           else
-            FINAL_SUFFIX="${{ env.KERNEL_NAME }}"
+            echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
+            for f in ./common/scripts/setlocalversion; do
+              sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
+            done
+            sudo sed -i 's/-4k/-${{ env.KERNEL_NAME }}/g' ./common/arch/arm64/configs/gki_defconfig
           fi
-          
-          echo "替换内核版本后缀为: -${FINAL_SUFFIX}"
-          
-          # 处理 setlocalversion 脚本
-          SCRIPT="./common/scripts/setlocalversion"
-          if [[ -f "$SCRIPT" ]]; then
-            # 移除 -dirty 标记
-            sed -i 's/ -dirty//g' "$SCRIPT"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$SCRIPT"
-            
-            # 检测脚本格式并修改
-            if grep -q 'KERNELVERSION.*scm_version' "$SCRIPT"; then
-              # 新格式：直接替换 echo 行
-              sed -i "s|echo \"\${KERNELVERSION}.*scm_version}\"|echo \"\${KERNELVERSION}-${FINAL_SUFFIX}\"|" "$SCRIPT"
-            elif grep -q 'echo "\$res"' "$SCRIPT"; then
-              # 旧格式：替换第一个 echo "$res" 为固定输出
-              sed -i "0,/echo \"\$res\"/s//echo \"-${FINAL_SUFFIX}\"/" "$SCRIPT"
-            else
-              echo "警告：未识别的 setlocalversion 格式，尝试追加 echo"
-              echo "echo \"-${FINAL_SUFFIX}\"" >> "$SCRIPT"
-            fi
-            chmod +x "$SCRIPT"
-          else
-            echo "错误：未找到 $SCRIPT"
-            exit 1
-          fi
-          
-          # 修改 defconfig 中的配置
-          if [[ -f ./common/arch/arm64/configs/gki_defconfig ]]; then
-            # 删除已有的 CONFIG_LOCALVERSION 行
-            grep -v '^CONFIG_LOCALVERSION=' ./common/arch/arm64/configs/gki_defconfig > ./common/arch/arm64/configs/gki_defconfig.tmp
-            echo "CONFIG_LOCALVERSION=\"-${FINAL_SUFFIX}\"" >> ./common/arch/arm64/configs/gki_defconfig.tmp
-            mv ./common/arch/arm64/configs/gki_defconfig.tmp ./common/arch/arm64/configs/gki_defconfig
-            # 关闭自动追加
-            echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-            # 替换 -4k 字符串（如果原 defconfig 中有）
-            sed -i "s/-4k/-${FINAL_SUFFIX}/g" ./common/arch/arm64/configs/gki_defconfig
-          else
-            echo "警告：未找到 gki_defconfig"
-          fi
-          
-          # ========== 准确的成功输出 ==========
-          echo "::group::✅ 内核版本后缀修改成功"
-          echo "最终内核版本后缀: -${FINAL_SUFFIX}"
-          echo "完整内核版本预计为: ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}-${FINAL_SUFFIX}"
-          # 验证修改
-          if grep -q "echo \"-${FINAL_SUFFIX}\"" ./common/scripts/setlocalversion 2>/dev/null; then
-            echo "✅ setlocalversion 已正确替换 echo 输出"
-          else
-            echo "⚠️ 注意：setlocalversion 未检测到预期 echo 行，请检查脚本格式"
-          fi
-          if grep -q "CONFIG_LOCALVERSION=\"-${FINAL_SUFFIX}\"" ./common/arch/arm64/configs/gki_defconfig; then
-            echo "✅ gki_defconfig 已正确设置 CONFIG_LOCALVERSION"
-          else
-            echo "⚠️ 注意：gki_defconfig 未检测到 CONFIG_LOCALVERSION 设置"
-          fi
-          echo "::endgroup::"
+          sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
+          echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
 
       - name: Download PatchFakePatches.kts
         run: |
@@ -1621,6 +1578,9 @@ jobs:
           echo "sloppiness = file_stat_matches,include_file_ctime,include_file_mtime,pch_defines,file_macro,time_macros" >> "$CCACHE_DIR/ccache.conf"
           
           cd kernel_workspace/common
+          # 修复 glibc>=2.42 / C23 下 strchr 返回 const char* 触发 -Werror 导致的主机工具构建失败
+          sed -i "s/next_path = strchr(s, ':');/next_path = (char *)strchr(s, ':');/" tools/lib/bpf/libbpf.c
+          grep -n "next_path = (char \*)strchr" tools/lib/bpf/libbpf.c && echo ">>> libbpf.c 修补成功 <<<" || { echo ">>> 修补失败 <<<"; exit 1; }
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod 777 ./*.so
@@ -1667,8 +1627,8 @@ jobs:
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
           sudo rm -rf /opt/hostedtoolcache/CodeQL &
-                    CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) WERROR=0 LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
-          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) WERROR=0 LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
+          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
+          CONFIG_FAKE_DISABLE="$CONFIG_FAKE_DISABLE" make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
           # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
