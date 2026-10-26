@@ -27,11 +27,11 @@ on:
         required: false
         type: string
         default: ''
-      sublevel:
-        description: '自定义内核等级欺骗(SUBLEVEL)，留空则不修改'
+      uidfake:
+        description: '自定义uidfake'
         required: false
-        type: string
-        default: ''
+        type: boolean
+        default: 'false'
       build_time:
         description: '自定义构建时间(输入F使用UTC时间，-1关闭，留空则使用默认)'
         required: false
@@ -1413,18 +1413,6 @@ jobs:
             fi
           done
 
-      - name: 自定义内核等级欺骗(SUBLEVEL)
-        if: inputs.sublevel != ''
-        run: |
-          cd kernel_workspace/common
-          ORIG_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' Makefile)
-          echo "原始内核版本: $ORIG_VERSION"
-          echo "修改 SUBLEVEL 为 ${{ github.event.inputs.sublevel }}"
-          sed -i "s/^\(SUBLEVEL[[:space:]]*=[[:space:]]*\).*/\1${{ github.event.inputs.sublevel }}/" Makefile
-          NEW_VERSION=$(awk '/^VERSION =/ {v=$3} /^PATCHLEVEL =/ {p=$3} /^SUBLEVEL =/ {s=$3} END {print v"."p"."s}' Makefile)
-          echo "新的内核版本: $NEW_VERSION"
-          echo "SUBLEVEL_MODIFIED=true" >> $GITHUB_ENV
-
       # ==================== 阶段2: ABK 模块 before_build ====================
       - name: 执行 ABK 模块 (before_build)
         if: github.event.inputs.abk_modules != ''
@@ -1496,6 +1484,7 @@ jobs:
           python3 "$SCRIPT_PATH"
 
       - name: 应用 UIDFilter 内核侧补丁
+        if: inputs.uidfake
         run: |
           set -e
           KERNEL_ROOT="kernel_workspace/common"
