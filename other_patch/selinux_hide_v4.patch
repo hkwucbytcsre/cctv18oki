@@ -1,0 +1,117 @@
+--- a/kernel/feature/selinux_hide.c
++++ b/kernel/feature/selinux_hide.c
+@@ -238,6 +238,80 @@
+ }
+ #endif
+ 
++
++enum ksu_type_lookup {
++    KSU_TYPE_INVALID = 0, /* type extracted and absent from the policy */
++    KSU_TYPE_VALID,       /* type extracted and present */
++    KSU_TYPE_DEFER,       /* degenerate name; let the full parser decide */
++};
++
++/*
++ * Fast, allocation-free type lookup against the policy used to answer
++ * app queries.
++ *
++ * The invalid-context timing probe compares payload (A), a context with an
++ * unknown type, with payload (B), the same string whose first byte is '\n'.
++ * Stock rejects both but through different code paths (A pays for the full
++ * dual-policy conversion, B skips it), so their write latencies differ and
++ * the probe can tell them apart.  Routing both payloads through this single
++ * lookup makes their latencies identical.  Contexts whose type exists still
++ * go through the full conversion below.  DEFER cases (oversized or
++ * embedded-NUL names) deliberately skip the leading-newline shortcut so
++ * that (B) performs the same conversion work as (A); every rejected payload
++ * ends at -EINVAL, as on stock.
++ */
++static enum ksu_type_lookup ksu_selinux_hide_lookup_type(struct policydb *db, const char *context, size_t size)
++{
++    const char *p, *end, *type, *type_end;
++    struct type_datum *typdatum;
++    char name[256];
++    size_t type_len;
++
++    if (!db)
++        return KSU_TYPE_DEFER;
++    if (!context || !size)
++        return KSU_TYPE_INVALID;
++
++    end = context + size;
++
++    /* Skip "user:" and "role:". */
++    p = memchr(context, ':', size);
++    if (!p)
++        return KSU_TYPE_INVALID;
++    p++;
++    p = memchr(p, ':', end - p);
++    if (!p)
++        return KSU_TYPE_INVALID;
++    p++;
++
++    type = p;
++    type_end = memchr(type, ':', end - type);
++    if (!type_end)
++        type_end = end;
++
++    type_len = (size_t)(type_end - type);
++    if (!type_len)
++        return KSU_TYPE_INVALID;
++
++    if (type_len >= sizeof(name) || memchr(type, '\0', type_len))
++        return KSU_TYPE_DEFER;
++
++    memcpy(name, type, type_len);
++    name[type_len] = '\0';
++
++    typdatum = symtab_search(&db->p_types, name);
++    return (typdatum && !typdatum->attribute) ? KSU_TYPE_VALID : KSU_TYPE_INVALID;
++}
++
++static struct policydb *ksu_hide_context_policydb(void)
++{
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) || defined(KSU_COMPAT_HAS_SELINUX_POLICY_STRUCT)
++    return backup_sepolicy ? &backup_sepolicy->policydb : NULL;
++#else
++    return backup_policydb;
++#endif
++}
++
+ __maybe_static ssize_t my_write_context(struct file *file, char *buf, size_t size)
+ {
+ #ifndef KSU_COMPAT_HAS_SUSFS_FEATURE_SELINUX_HIDE
+@@ -482,12 +556,28 @@
+     if (error)
+         return error;
+ 
++    if (size && str[size - 1] == '\n') {
++        str[size - 1] = 0;
++        size--;
++    }
++
++    /* Flatten the invalid-context timing probe: payloads (A) unknown type
++     * and (B) leading-newline variant both stop here after the same lookup,
++     * so their write latencies match.  DEFER payloads skip the shortcut so
++     * (B) does the same conversion work as (A); every rejected payload
++     * reaches -EINVAL, exactly like stock. */
++    {
++        bool leading_newline = size && str[0] == '\n';
++        enum ksu_type_lookup t = ksu_selinux_hide_lookup_type(ksu_hide_context_policydb(), str, size);
++
++        if (t == KSU_TYPE_INVALID)
++            return -EINVAL;
++        if (t == KSU_TYPE_VALID && leading_newline)
++            return -EINVAL;
++    }
++
+     /* Obtain a SID for the context, if one was specified. */
+-    if (size && str[0] && str[0] != '\n') {
+-        if (str[size - 1] == '\n') {
+-            str[size - 1] = 0;
+-            size--;
+-        }
++    if (size && str[0]) {
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) || defined(KSU_COMPAT_HAS_SELINUX_POLICY_STRUCT)
+         error2 = security_context_to_sid_with_policy(backup_sepolicy, value, size, &tmp_sid, SECSID_NULL, GFP_KERNEL,
+                                                      &sid, &error);
