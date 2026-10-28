@@ -141,6 +141,11 @@ on:
         required: true
         type: boolean
         default: 'false'
+      selinux_hide_timing:
+        description: '应用 selinux_hide A/B 时延平坦化补丁（App Zygote 时序探测防御，仅限BakaSU/SukiSU）'
+        required: true
+        type: boolean
+        default: 'false'
      # unicode_bypass:
      #   type: boolean
      #   description: "是否添加Unicode不可见字码点绕过读取漏洞修复？"
@@ -527,6 +532,27 @@ jobs:
             cd ./KernelSU
             patch -p1 -F 3 < 10_enable_susfs_for_ksu.patch || true
           fi
+
+      - name: 应用 selinux_hide A/B 时延平坦化补丁
+        if: inputs.selinux_hide_timing && (github.event.inputs.ksu_type == 'bakasu' || github.event.inputs.ksu_type == 'sukisu')
+        run: |
+          set -e
+          cd kernel_workspace/KernelSU
+          wget "https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/selinux_hide_v4.patch" -O selinux_hide_v4.patch
+
+          # 先干跑：确认补丁与当前 BakaSU 源码完全匹配，避免 -F 3 fuzz 在源码漂移时误伤
+          if ! patch -p1 --dry-run -F 3 < selinux_hide_v4.patch; then
+            echo "::error::selinux_hide_v4.patch 与当前 BakaSU 源码不匹配（上游可能已更新 selinux_hide.c），需要重新生成补丁"
+            exit 1
+          fi
+
+          patch -p1 -N -F 3 < selinux_hide_v4.patch
+          rm -f selinux_hide_v4.patch
+
+          # 应用后校验：关键符号必须存在
+          grep -q "ksu_selinux_hide_lookup_type" kernel/feature/selinux_hide.c
+          grep -q "KSU_TYPE_DEFER" kernel/feature/selinux_hide.c
+          echo "✓ selinux_hide_v4 补丁应用成功（A/B 时延平坦化已启用）"
           
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
         if: inputs.lz4_enable
