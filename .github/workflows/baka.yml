@@ -421,7 +421,15 @@ jobs:
           wget https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/CVE-2026-98260.patch
           patch -p1 -F 3 < CVE-2026-98260.patch
           echo "✓ cve2026-98260.patch 补丁应用成功"
-
+          
+      - name: 应用 CVE-2026-98432 补丁
+        run: |
+          echo ">>> 应用 CVE-2026-98432.patch 补丁..."
+          cd kernel_workspace/common
+          wget https://raw.githubusercontent.com/hkwucbytcsre/cctv18oki/main/other_patch/CVE-2026-98432.patch
+          patch -p1 -F 3 < CVE-2026-98432.patch
+          echo "✓ CVE-2026-98432.patch 补丁应用成功"
+          
       - name: 添加KernelSU
         id: ksu_version
         run: |
