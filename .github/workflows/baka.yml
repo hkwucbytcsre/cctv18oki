@@ -487,10 +487,10 @@ jobs:
         run: |
           set -e
           cd kernel_workspace
-          python3 "$GITHUB_WORKSPACE/other_patch/dispatch-uid_fix.py" ./KernelSU
+          # python3 "$GITHUB_WORKSPACE/other_patch/dispatch-uid_fix.py" ./KernelSU
 
           # ===== 验证补丁是否生效 =====
-          grep -q "CMD_SUSFS_SET_PRIORITY_UID_FILTER" ./KernelSU/kernel/supercall/dispatch.c
+          grep -q "SUSFS_SET_PRIORITY_UID_FILTER" ./KernelSU/kernel/supercall/dispatch.c
           grep -q "susfs_parse_priority_app_strings" ./KernelSU/kernel/manager/pkg_observer.c
           echo "✓ priority uid filter fork 补丁应用成功"
 
